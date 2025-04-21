@@ -1,0 +1,19 @@
+# Binaries
+/bin/
+/bin/srediag
+
+# Vendor
+/vendor/
+/pkg/
+/path/
+
+# IDE files
+.vscode/
+.idea/
+
+# Test
+*.out
+coverage.out
+
+# OS
+.DS_Store

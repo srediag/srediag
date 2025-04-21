@@ -1,0 +1,8 @@
+# srediag agent configuration
+otlp:
+  endpoint: "localhost:4317"
+  insecure: true
+plugins:
+  metrics:
+    enabled: true
+    interval: 60 # seconds
