@@ -4,8 +4,7 @@
 
 # Vendor
 /vendor/
-/pkg/
-/path/
+/pkg/mod/
 
 # IDE files
 .vscode/

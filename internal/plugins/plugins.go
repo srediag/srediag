@@ -1,24 +1,23 @@
 package plugins
 
-// Plugin interface definitions for srediag
-// Each plugin must implement Init and Run
-
-type Plugin interface {
-	// Init initializes the plugin with raw configuration
-	Init(config map[string]interface{}) error
-	// Run executes the plugin's primary function (collect, process, act)
-	Run() error
+// PluginInfo contains metadata about a plugin
+type PluginInfo struct {
+	Name        string
+	Version     string
+	Type        string
+	Description string
+	Author      string
 }
 
-// Register and discover plugins here
+// Registry manages plugin registration and discovery
 type registry struct {
-	plugins map[string]Plugin
+	plugins map[string]interface{}
 }
 
-var Registry = &registry{plugins: make(map[string]Plugin)}
+var Registry = &registry{plugins: make(map[string]interface{})}
 
 func NewPluginRegistry() *registry {
-	return &registry{plugins: make(map[string]Plugin)}
+	return &registry{plugins: make(map[string]interface{})}
 }
 
 func (r *registry) List() []string {
@@ -29,22 +28,12 @@ func (r *registry) List() []string {
 	return keys
 }
 
-func (r *registry) Get(name string) Plugin {
+func (r *registry) Get(name string) interface{} {
 	return Registry.plugins[name]
 }
 
-func (r *registry) Register(name string, p interface{}) Plugin {
-	var plugin Plugin
-	switch v := p.(type) {
-	case func() Plugin:
-		plugin = v()
-	case Plugin:
-		plugin = v
-	default:
-		panic("Invalid plugin type passed to Register; must be Plugin or func() Plugin")
-	}
-	r.plugins[name] = plugin
-	return plugin
+func (r *registry) Register(name string, p interface{}) {
+	r.plugins[name] = p
 }
 
 func (r *registry) Exists(name string) bool {

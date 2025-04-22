@@ -1,113 +1,202 @@
-# srediag
+# SREDIAG – OBSERVO Diagnostics Agent
 
-**srediag** is a lightweight, plugin‑driven infrastructure diagnostics agent written in Go.  
-It exports metrics, logs and traces via OpenTelemetry (OTLP) and stores them in ClickHouse.  
-The agent core is extensible via HashiCorp Go‑Plugin.
+SREDIAG is a powerful diagnostic and observability agent designed for modern SRE practices.
+It combines robust telemetry collection with advanced diagnostic capabilities, providing deep insights into systems, applications, and infrastructure.
+Whether you’re troubleshooting a Kubernetes cluster, analyzing cloud infrastructure, or monitoring application performance, SREDIAG provides the tools you need for effective system reliability engineering.
 
----
+## Key Features
 
-## 🚀 Quickstart
+- **Advanced Diagnostics**
+  - Real‑time system analysis and troubleshooting
+  - Kubernetes cluster health diagnostics
+  - Infrastructure configuration analysis
+  - Performance bottleneck detection
+  - Root cause analysis
 
-```bash
-# Clone and enter
-git clone https://github.com/srediag/srediag.git
-cd srediag
+- **SRE Tooling**
+  - SLO/SLI monitoring and tracking
+  - Error budget management
+  - Capacity planning
+  - Performance analysis
+  - Automated remediation suggestions
 
-# Build the agent
-make build
+- **Multi‑Platform Support**
+  - Kubernetes environments
+  - Cloud providers (AWS, Azure, GCP)
+  - Bare‑metal servers
+  - Containerized applications
+  - Virtual machines
 
-# Run with default config
-./bin/srediag --config ./configs/config.yaml
-```
+- **Configuration Analysis**
+  - Infrastructure as Code validation
+  - Security compliance checking
+  - Best practices enforcement
+  - Configuration drift detection
+  - Cost optimization recommendations
 
----
+- **Plugin System**
+  - Extensible architecture
+  - Custom diagnostic capabilities
+  - Integration with existing tools
+  - Community plugin ecosystem
+  - Plugin marketplace
 
-## 📁 Repository Layout
+- **CLI Tools**
+  - Interactive diagnostics
+  - Health checking
+  - Performance analysis
+  - Configuration validation
+  - Resource optimization
 
-```text
-.
-├── LICENSE
-├── Makefile
-├── Dockerfile
-├── README.md
-├── configs/
-│   └── config.yaml
-├── cmd/
-│   └── srediag/
-│       └── main.go
-├── internal/
-│   └── plugins/
-│       └── plugins.go
-├── metrics/
-├── logs/
-├── traces/
-├── .golangci.yml
-├── .gitignore
-└── .github/
-    └── workflows/
-        └── ci.yml
-```
+## Architecture
 
----
+SREDIAG is built on a modular architecture designed for reliability and extensibility:
 
-## 🛠️ Features
+1. **Diagnostic Engine**
+   Advanced analysis and troubleshooting capabilities
 
-- **Plugin architecture** powered by [hashicorp/go-plugin].  
-- **OpenTelemetry** support (metrics, logs, traces) via OTLP gRPC.  
-- **ClickHouse** backend for high‑performance analytics.  
-- **Config** with [spf13/viper] + Cobra CLI.  
-- **Structured logging** with [uber/zap].
+2. **Plugin System**
+   Extensible architecture for custom diagnostics
 
----
+3. **CLI Interface**
+   Powerful command‑line diagnostic tools
 
-## ⚙️ Configuration
+4. **Telemetry Pipeline**
+   Efficient data collection and analysis
 
-Edit `configs/config.yaml`:
+5. **Integration Layer**
+   Connects with external systems and tools
+
+6. **Security Layer**
+   Ensures secure operation and data handling
+
+## Getting Started
+
+### Prerequisites
+
+- Go 1.24 or higher
+- Make
+- Git
+- kubectl (for Kubernetes features)
+- Cloud provider CLI tools (optional)
+
+### Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/observo/srediag.git
+   cd srediag
+   ```
+
+2. Build the agent:
+
+   ```bash
+   make build
+   ```
+
+3. Create a configuration file:
+
+   ```bash
+   cp configs/config.yaml.example configs/config.yaml
+   ```
+
+4. Edit the configuration file according to your needs.
+
+### Basic Usage
+
+1. Run system diagnostics:
+
+   ```bash
+   srediag diagnose system
+   ```
+
+2. Analyze Kubernetes cluster:
+
+   ```bash
+   srediag diagnose kubernetes --cluster my-cluster
+   ```
+
+3. Check configuration:
+
+   ```bash
+   srediag analyze config --path /path/to/config
+   ```
+
+4. Start monitoring:
+
+   ```bash
+   srediag monitor --target system|kubernetes|cloud
+   ```
+
+## Configuration
+
+SREDIAG uses a YAML configuration file with the following structure:
 
 ```yaml
-otlp:
-  endpoint: "localhost:4317"
+debug: false
+log_level: "info"
+
+telemetry:
+  enabled: true
+  service_name: "srediag"
+  endpoint: "http://localhost:4317"
+
+diagnostics:
+  system:
+    enabled: true
+    interval: "1m"
+  kubernetes:
+    enabled: true
+    context: "my-cluster"
+  cloud:
+    enabled: true
+    providers:
+      - aws
+      - gcp
 
 plugins:
-  - metrics
-  - logs
-  - traces
+  directory: "plugins"
+  enabled:
+    - "system-diagnostics"
+    - "k8s-analyzer"
+    - "cloud-diagnostics"
+  settings:
+    system-diagnostics:
+      collect_interval: "30s"
+    k8s-analyzer:
+      include_events: true
+    cloud-diagnostics:
+      regions:
+        - "us-east-1"
+        - "eu-west-1"
 ```
 
----
+## Plugin Development
 
-## 📦 Releases & Docker
+SREDIAG supports various types of plugins:
 
-Build and publish a Docker image:
+1. **Diagnostic Plugins**: Create custom diagnostic capabilities
+2. **Collector Plugins**: Gather specific metrics, logs, or traces
+3. **Analysis Plugins**: Implement custom analysis algorithms
+4. **Integration Plugins**: Connect with external systems
 
-```bash
-make docker
-```
+For detailed information about plugin development, see [Plugin Development Guide](docs/plugin-development.md).
 
-Then run:
+## Contributing
 
-```bash
-docker run --rm -v "$PWD/configs":/app/configs \
-  srediag/srediag:latest --config /app/configs/config.yaml
-```
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
----
+## License
 
-## ✔️ Contributing
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
 
-1. Fork the repo.  
-2. Create `feature/xyz` branch.  
-3. Implement and test.  
-4. Send a Pull Request.  
+## Support
 
-Please read [`CODE_OF_CONDUCT.md`] and [`CONTRIBUTING.md`] for guidelines.
+- [Documentation](docs/)
+- [Issue Tracker](https://github.com/observo/srediag/issues)
+- [Discussions](https://github.com/observo/srediag/discussions)
 
----
+## Roadmap
 
-## 📜 License
-
-This project is licensed under Apache 2.0. See [LICENSE] for details.
-
-[hashicorp/go-plugin]: https://github.com/hashicorp/go-plugin
-[spf13/viper]:    https://github.com/spf13/viper
-[uber/zap]:       https://github.com/uber-go/zap
+See our [TODO](TODO.md) file for planned features and improvements.

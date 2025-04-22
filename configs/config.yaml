@@ -1,8 +1,54 @@
-# srediag agent configuration
-otlp:
-  endpoint: "localhost:4317"
-  insecure: true
+# SREDIAG Configuration
+version: "v0.1.0"
+debug: false
+log_level: "info"
+
+# Service configuration
+service:
+  name: "srediag"
+  environment: "${SREDIAG_ENV:-production}"
+
+# OpenTelemetry configuration
+telemetry:
+  enabled: true
+  service_name: "${SREDIAG_SERVICE_NAME:-srediag}"
+  endpoint: "${OTLP_ENDPOINT:-http://localhost:4317}"
+  protocol: "grpc"
+  environment: "${SREDIAG_ENV:-production}"
+  resource_attributes:
+    deployment.region: "${DEPLOYMENT_REGION:-unknown}"
+    service.instance.id: "${INSTANCE_ID:-unknown}"
+
+# Plugin configuration
 plugins:
-  metrics:
-    enabled: true
-    interval: 60 # seconds
+  directory: "${PLUGIN_DIR:-plugins}"
+  enabled:
+    - "metrics"
+    - "logs"
+    - "traces"
+  settings:
+    metrics:
+      interval: "${METRICS_INTERVAL:-10s}"
+      exporters:
+        - "prometheus"
+    logs:
+      paths:
+        - "/var/log/*.log"
+      exclude:
+        - "*.gz"
+    traces:
+      sample_rate: 0.1
+
+# Security configuration
+security:
+  tls:
+    enabled: ${TLS_ENABLED:-false}
+    cert_file: "${TLS_CERT_FILE:-/etc/srediag/certs/server.crt}"
+    key_file: "${TLS_KEY_FILE:-/etc/srediag/certs/server.key}"
+    ca_file: "${TLS_CA_FILE:-/etc/srediag/certs/ca.crt}"
+  auth:
+    type: "${AUTH_TYPE:-none}"
+    token_file: "${AUTH_TOKEN_FILE:-}"
+    basic:
+      username: "${BASIC_AUTH_USER:-}"
+      password_file: "${BASIC_AUTH_PASSWORD_FILE:-}"

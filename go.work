@@ -1,4 +1,0 @@
-// This file is used to define the module dependencies for the Go project.
-use .
-
-go 1.24.2

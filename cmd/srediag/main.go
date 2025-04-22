@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/srediag/srediag/internal/app"
+	"github.com/srediag/srediag/internal/config"
 	"github.com/srediag/srediag/internal/logger"
 	"github.com/srediag/srediag/internal/telemetry"
 )
@@ -16,68 +20,104 @@ import (
 // Version is set at build-time via -ldflags
 var Version = "v0.1.0"
 
-func main() {
-	// Initialize root command
-	debug := viper.GetBool("debug")
-	if err := logger.Init(debug); err != nil {
-		fmt.Fprintf(os.Stderr, "logger init error: %v\n", err)
-		os.Exit(1)
-	}
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
-	tp, err := telemetry.InitTracer("srediag")
-	if err != nil {
-		logger.Sugar().Fatalf("telemetry init: %v", err)
-	}
-
-	ctx := context.Background()
-	defer func() { _ = tp.Shutdown(ctx) }()
-	rootCmd := &cobra.Command{
-		Use:     "srediag",
-		Short:   "SRE Diagnostics agent for OBSERVO",
-		Long:    "srediag is a modular observability agent, extensible via plugins, collecting metrics, logs, and traces.",
+var (
+	cfgFile string
+	rootCmd = &cobra.Command{
+		Use:   "srediag",
+		Short: "SREDIAG - SRE Diagnostics and Analysis System",
+		Long: `SREDIAG is a diagnostic and analysis tool for SRE
+that integrates multiple data sources and provides insights through plugins.`,
 		Version: Version,
 	}
+)
 
-	// Global flags
-	rootCmd.PersistentFlags().StringP("config", "c", "configs/config.yaml", "Path to config file")
-	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
-		logger.Warn("failed to bind flag", zap.Error(err))
+func init() {
+	cobra.OnInitialize(initConfig)
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.srediag.yaml)")
+	rootCmd.AddCommand(createStartCmd())
+}
+
+func initConfig() {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, err := os.UserHomeDir()
+		cobra.CheckErr(err)
+
+		viper.AddConfigPath(home)
+		viper.SetConfigType("yaml")
+		viper.SetConfigName(".srediag")
 	}
 
-	// Subcommands
-	rootCmd.AddCommand(startCmd(logger))
-	rootCmd.AddCommand(versionCmd())
+	viper.AutomaticEnv()
 
+	if err := viper.ReadInConfig(); err == nil {
+		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	}
+}
+
+func main() {
 	if err := rootCmd.Execute(); err != nil {
-		logger.Fatal("command execution failed", zap.Error(err))
 		os.Exit(1)
 	}
 }
 
-func startCmd(logger *zap.Logger) *cobra.Command {
+func createStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
-		Short: "Start the Srediag agent",
-		Run: func(cmd *cobra.Command, args []string) {
-			configPath := viper.GetString("config")
-			logger.Info("Loading config", zap.String("path", configPath))
+		Short: "Start the SREDIAG service",
+		Long:  `Start the SREDIAG service with the specified configuration`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load configuration
+			cfg, err := config.Load(cfgFile)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
 
-			// TODO: load YAML into struct via viper
-			// Initialize telemetry, plugin loader, main loop
+			// Initialize logger
+			if err := logger.Init(cfg.Debug); err != nil {
+				return fmt.Errorf("failed to initialize logger: %w", err)
+			}
+			log, err := logger.Get()
+			if err != nil {
+				return fmt.Errorf("failed to get logger: %w", err)
+			}
+			defer func() { _ = log.Sync() }()
 
-			fmt.Println("Starting srediag agent...")
-		},
-	}
-}
+			// Create context with cancellation
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-func versionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Print the version number of srediag",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("srediag version %s\n", Version)
+			// Setup signal handling
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			go func() {
+				sig := <-sigCh
+				log.Info("received shutdown signal", zap.String("signal", sig.String()))
+				cancel()
+			}()
+
+			// Initialize telemetry if enabled
+			if cfg.Telemetry.Enabled {
+				tp, err := telemetry.InitTracer(cfg.Telemetry.ServiceName)
+				if err != nil {
+					log.Error("failed to initialize telemetry", zap.Error(err))
+				} else {
+					defer func() { _ = tp.Shutdown(context.Background()) }()
+				}
+			}
+
+			// Create and start application
+			application := app.New(cfg, log)
+			if err := application.Start(ctx); err != nil {
+				return fmt.Errorf("application error: %w", err)
+			}
+
+			// Wait for context cancellation
+			<-ctx.Done()
+			log.Info("shutting down service")
+
+			return nil
 		},
 	}
 }

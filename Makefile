@@ -17,8 +17,9 @@ all: check-env install-mage deps fmt lint test build
 
 install-dev-tools:
 	@echo ">> Installing development tools..."
+	@go install github.com/magefile/mage@v1.15.0
 	@go install golang.org/x/tools/cmd/goimports@latest
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.2
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
 	@echo "Development tools installed ✓"
 
 check-env:
@@ -35,11 +36,11 @@ check-env:
 install-mage:
 	@command -v mage >/dev/null 2>&1 || { \
 	  echo ">> Installing Mage CLI…"; \
-	  go install github.com/magefile/mage@latest; \
+	  cd tools && go generate; \
 	}
 	@echo "Mage available at: $(shell command -v mage)"
 
-deps: install-dev-tools
+deps:
 	@echo ">> Downloading modules…"
 	@go mod download
 
@@ -48,7 +49,7 @@ fmt:
 	mage Format
 
 lint:
-	@echo ">> Running linter…"
+	@echo ">> Running linter…" 
 	mage Lint
 
 test:
