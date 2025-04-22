@@ -1,30 +1,39 @@
-# SREDIAG – OBSERVO Diagnostics Agent
+# SREDIAG – OBSERVO Diagnostics Agent
 
-SREDIAG is a powerful diagnostic and observability agent designed for modern SRE practices.
-It combines robust telemetry collection with advanced diagnostic capabilities, providing deep insights into systems, applications, and infrastructure.
-Whether you’re troubleshooting a Kubernetes cluster, analyzing cloud infrastructure, or monitoring application performance, SREDIAG provides the tools you need for effective system reliability engineering.
+SREDIAG is a powerful diagnostic and observability agent built on top of OpenTelemetry Collector.
+It extends the OpenTelemetry Collector's capabilities with advanced diagnostic features, providing deep insights into systems, applications, and infrastructure.
+Whether you're troubleshooting a Kubernetes cluster, analyzing cloud infrastructure, or monitoring application performance, SREDIAG combines OpenTelemetry's robust telemetry collection with specialized diagnostic tools.
 
 ## Key Features
+
+- **OpenTelemetry Integration**
+  - Built on OpenTelemetry Collector architecture
+  - Full compatibility with OpenTelemetry protocols
+  - Support for all OpenTelemetry core components
+  - Extended collector functionality
+  - Custom processors and exporters
 
 - **Advanced Diagnostics**
   - Real‑time system analysis and troubleshooting
   - Kubernetes cluster health diagnostics
   - Infrastructure configuration analysis
   - Performance bottleneck detection
-  - Root cause analysis
+  - Root cause analysis automation
 
-- **SRE Tooling**
-  - SLO/SLI monitoring and tracking
-  - Error budget management
-  - Capacity planning
-  - Performance analysis
-  - Automated remediation suggestions
+- **Management Capabilities**
+  - Configuration management
+  - Resource provisioning
+  - Policy enforcement
+  - Automated remediation
+  - Change management
+  - State reconciliation
 
 - **Multi‑Platform Support**
   - Kubernetes environments
-  - Cloud providers (AWS, Azure, GCP)
+  - Oracle Cloud Infrastructure (OCI)
+  - AWS environments
+  - Azure platforms
   - Bare‑metal servers
-  - Containerized applications
   - Virtual machines
 
 - **Configuration Analysis**
@@ -34,47 +43,63 @@ Whether you’re troubleshooting a Kubernetes cluster, analyzing cloud infrastru
   - Configuration drift detection
   - Cost optimization recommendations
 
-- **Plugin System**
-  - Extensible architecture
-  - Custom diagnostic capabilities
-  - Integration with existing tools
-  - Community plugin ecosystem
-  - Plugin marketplace
+- **Extended Plugin System**
+  - Diagnostic plugins
+  - Analysis plugins
+  - Integration plugins
+  - Management plugins
+  - Custom plugin development
+  - Plugin marketplace support
 
 - **CLI Tools**
   - Interactive diagnostics
-  - Health checking
-  - Performance analysis
-  - Configuration validation
+  - System analysis
+  - Performance profiling
+  - Configuration management
   - Resource optimization
+  - State management
 
 ## Architecture
 
-SREDIAG is built on a modular architecture designed for reliability and extensibility:
+SREDIAG extends the OpenTelemetry Collector architecture with additional capabilities:
 
-1. **Diagnostic Engine**
-   Advanced analysis and troubleshooting capabilities
+1. **OpenTelemetry Core**
+   - Full OpenTelemetry Collector integration
+   - Standard receivers, processors, and exporters
+   - Native protocol support
+   - Built-in scalability and reliability
 
-2. **Plugin System**
-   Extensible architecture for custom diagnostics
+2. **Diagnostic Engine**
+   - Advanced analysis capabilities
+   - Real-time troubleshooting
+   - Custom diagnostic processors
+   - Extended metrics collection
 
-3. **CLI Interface**
-   Powerful command‑line diagnostic tools
+3. **Management Engine**
+   - Configuration management
+   - State reconciliation
+   - Change application
+   - Policy enforcement
 
-4. **Telemetry Pipeline**
-   Efficient data collection and analysis
+4. **Plugin System**
+   - Diagnostic plugins
+   - Analysis plugins
+   - Integration plugins
+   - Management plugins
 
-5. **Integration Layer**
-   Connects with external systems and tools
+5. **Security Layer**
+   - Authentication and authorization
+   - Data encryption
+   - Compliance monitoring
+   - Access control
 
-6. **Security Layer**
-   Ensures secure operation and data handling
+For detailed architecture information, see [Architecture Documentation](docs/architecture/overview.md).
 
 ## Getting Started
 
 ### Prerequisites
 
-- Go 1.24 or higher
+- Go 1.24 or higher
 - Make
 - Git
 - kubectl (for Kubernetes features)
@@ -85,7 +110,7 @@ SREDIAG is built on a modular architecture designed for reliability and extensib
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/observo/srediag.git
+   git clone https://github.com/srediag/srediag.git
    cd srediag
    ```
 
@@ -117,10 +142,10 @@ SREDIAG is built on a modular architecture designed for reliability and extensib
    srediag diagnose kubernetes --cluster my-cluster
    ```
 
-3. Check configuration:
+3. Apply configuration changes:
 
    ```bash
-   srediag analyze config --path /path/to/config
+   srediag apply config --path /path/to/config
    ```
 
 4. Start monitoring:
@@ -129,59 +154,18 @@ SREDIAG is built on a modular architecture designed for reliability and extensib
    srediag monitor --target system|kubernetes|cloud
    ```
 
-## Configuration
+For detailed usage instructions, see [CLI Documentation](docs/cli/README.md).
 
-SREDIAG uses a YAML configuration file with the following structure:
+## Documentation
 
-```yaml
-debug: false
-log_level: "info"
-
-telemetry:
-  enabled: true
-  service_name: "srediag"
-  endpoint: "http://localhost:4317"
-
-diagnostics:
-  system:
-    enabled: true
-    interval: "1m"
-  kubernetes:
-    enabled: true
-    context: "my-cluster"
-  cloud:
-    enabled: true
-    providers:
-      - aws
-      - gcp
-
-plugins:
-  directory: "plugins"
-  enabled:
-    - "system-diagnostics"
-    - "k8s-analyzer"
-    - "cloud-diagnostics"
-  settings:
-    system-diagnostics:
-      collect_interval: "30s"
-    k8s-analyzer:
-      include_events: true
-    cloud-diagnostics:
-      regions:
-        - "us-east-1"
-        - "eu-west-1"
-```
-
-## Plugin Development
-
-SREDIAG supports various types of plugins:
-
-1. **Diagnostic Plugins**: Create custom diagnostic capabilities
-2. **Collector Plugins**: Gather specific metrics, logs, or traces
-3. **Analysis Plugins**: Implement custom analysis algorithms
-4. **Integration Plugins**: Connect with external systems
-
-For detailed information about plugin development, see [Plugin Development Guide](docs/plugin-development.md).
+- [Getting Started](docs/getting-started/README.md)
+- [Architecture](docs/architecture/README.md)
+- [Configuration](docs/configuration/README.md)
+- [Plugin System](docs/plugins/README.md)
+- [CLI Reference](docs/cli/README.md)
+- [Cloud Integration](docs/cloud/README.md)
+- [API Reference](docs/reference/api.md)
+- [Security](docs/architecture/security.md)
 
 ## Contributing
 
@@ -193,10 +177,86 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 
 ## Support
 
-- [Documentation](docs/)
-- [Issue Tracker](https://github.com/observo/srediag/issues)
-- [Discussions](https://github.com/observo/srediag/discussions)
+- [Documentation](docs/README.md)
+- [Issue Tracker](https://github.com/srediag/srediag/issues)
+- [Discussions](https://github.com/srediag/srediag/discussions)
 
 ## Roadmap
 
-See our [TODO](TODO.md) file for planned features and improvements.
+See our [TODO List](docs/TODO.md) for planned features and improvements.
+
+## CLI Tools
+
+SREDIAG provides powerful diagnostic CLI tools for interactive troubleshooting and analysis:
+
+### System Diagnostics
+
+```bash
+# Basic system diagnostics
+srediag diagnose system
+
+# Specific resource analysis
+srediag diagnose system --resource cpu
+srediag diagnose system --resource memory
+srediag diagnose system --resource disk
+
+# Real-time monitoring
+srediag monitor system --interval 5s
+
+# Process analysis
+srediag analyze process --pid 1234
+```
+
+### Kubernetes Diagnostics
+
+```bash
+# Cluster health check
+srediag diagnose kubernetes --cluster my-cluster
+
+# Resource analysis
+srediag analyze kubernetes resources --namespace default
+srediag analyze kubernetes deployments --show-events
+
+# Configuration audit
+srediag audit kubernetes --namespace production
+```
+
+### Performance Analysis
+
+```bash
+# CPU profiling
+srediag profile cpu --duration 30s --output cpu.prof
+
+# Memory analysis
+srediag analyze memory --threshold 90
+
+# Goroutine inspection
+srediag debug goroutines --trace
+
+# Bottleneck detection
+srediag analyze bottlenecks --service my-service
+```
+
+### Security Diagnostics
+
+```bash
+# Vulnerability scanning
+srediag scan vulnerabilities --severity high
+
+# Compliance checking
+srediag check compliance --standard pci-dss
+
+# Configuration audit
+srediag audit config --path /etc/srediag
+```
+
+### Analysis Features
+
+- Real-time metric collection and analysis
+- Automatic correlation detection
+- Root cause analysis
+- Anomaly detection
+- Performance bottleneck identification
+- Security vulnerability assessment
+- Configuration validation
+- Resource optimization recommendations

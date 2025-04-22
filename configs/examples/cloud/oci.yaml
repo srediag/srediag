@@ -1,0 +1,79 @@
+oci:
+  compartment_id: your-compartment-id
+  region: us-phoenix-1
+  
+  credentials:
+    config_file: /path/to/config
+    profile: DEFAULT
+    use_instance_principal: false
+  
+  monitoring:
+    interval: 60s
+    enhanced: true
+    metrics:
+      - oci_computeagent.CPUUtilization
+      - oci_computeagent.MemoryUtilization
+      - oci_computeagent.DiskBytesRead
+      - oci_computeagent.DiskBytesWritten
+      - oci_computeagent.NetworkBytesIn
+      - oci_computeagent.NetworkBytesOut
+    
+    custom_metrics:
+      - name: ApplicationErrors
+        namespace: custom/application
+        dimensions:
+          - service
+          - environment
+    
+    alarms:
+      - name: HighCPUUsage
+        metric: oci_computeagent.CPUUtilization
+        threshold: 80
+        window: 5m
+        severity: CRITICAL
+  
+  opentelemetry:
+    endpoint: localhost:4317
+    protocol: grpc
+    sampling:
+      type: probabilistic
+      ratio: 0.1
+    
+  services:
+    compute:
+      enabled: true
+      tags:
+        environment: Production
+    
+    container_engine:
+      enabled: true
+      clusters:
+        - name: production
+          compartment: your-compartment-id
+    
+    functions:
+      enabled: true
+      applications:
+        - name: api-app
+          functions:
+            - name: api-handler
+    
+  integrations:
+    monitoring:
+      enabled: true
+      namespaces:
+        - oci_computeagent
+        - oci_containerengine
+    
+    apm:
+      enabled: true
+      domains:
+        - name: production
+          compartment: your-compartment-id
+    
+    logging:
+      enabled: true
+      log_groups:
+        - name: production-logs
+          compartment: your-compartment-id
+          retention_days: 30 

@@ -1,0 +1,62 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "${OTEL_GRPC_ENDPOINT:-0.0.0.0:4317}"
+      http:
+        endpoint: "${OTEL_HTTP_ENDPOINT:-0.0.0.0:4318}"
+  hostmetrics:
+    collection_interval: "${HOSTMETRICS_INTERVAL:-10s}"
+    scrapers:
+      cpu:
+      disk:
+      filesystem:
+      memory:
+      network:
+      process:
+
+processors:
+  batch:
+    timeout: "${BATCH_TIMEOUT:-1s}"
+    send_batch_size: "${BATCH_SIZE:-1024}"
+  memory_limiter:
+    check_interval: "${MEMORY_CHECK_INTERVAL:-1s}"
+    limit_mib: "${MEMORY_LIMIT_MIB:-1024}"
+  resourcedetection:
+    detectors: [env, system, docker, kubernetes]
+    timeout: "${RESOURCE_DETECTION_TIMEOUT:-2s}"
+  k8sattributes:
+    auth_type: "serviceAccount"
+    extract:
+      metadata:
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.deployment.name
+        - k8s.namespace.name
+        - k8s.node.name
+
+exporters:
+  otlp:
+    endpoint: "${OTLP_ENDPOINT:-localhost:4317}"
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: "${PROMETHEUS_ENDPOINT:-0.0.0.0:9090}"
+
+extensions:
+  health_check:
+  pprof:
+  zpages:
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp, hostmetrics]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [otlp, prometheus] 
+ 

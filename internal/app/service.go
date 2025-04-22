@@ -8,25 +8,27 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/srediag/srediag/internal/config"
-	"github.com/srediag/srediag/internal/plugins"
-	"github.com/srediag/srediag/internal/telemetry"
+	"github.com/srediag/srediag/internal/core"
 )
 
 // Service represents the main SREDIAG service
 type Service struct {
 	logger     *zap.Logger
-	config     *config.Config
-	pluginMgr  *plugins.Manager
-	telemetry  *telemetry.Manager
+	config     *config.SREDiagConfig
+	pluginMgr  core.PluginManager
+	telemetry  core.TelemetryBridge
 	mu         sync.RWMutex
 	isRunning  bool
 	cancelFunc context.CancelFunc
 }
 
 // NewService creates a new instance of the SREDIAG service
-func NewService(cfg *config.Config, logger *zap.Logger) (*Service, error) {
+func NewService(cfg *config.SREDiagConfig, logger *zap.Logger) (*Service, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("logger cannot be nil")
 	}
 
 	return &Service{
@@ -48,14 +50,14 @@ func (s *Service) Start(ctx context.Context) error {
 	s.cancelFunc = cancel
 
 	// Initialize plugin manager
-	pluginMgr := plugins.NewManager(s.config.Plugins, s.logger)
+	pluginMgr := core.NewPluginManager(s.logger.Named("plugin-manager"))
 	s.pluginMgr = pluginMgr
 
-	// Initialize telemetry manager
-	telemetry, err := telemetry.NewManager(s.config.Telemetry, s.config.Version, s.logger)
-	if err != nil {
-		return fmt.Errorf("failed to initialize telemetry manager: %w", err)
-	}
+	// Initialize telemetry bridge
+	telemetry := core.NewTelemetryBridge(
+		s.logger.Named("telemetry-bridge"),
+		nil, // Resource will be created in SREDiag
+	)
 	s.telemetry = telemetry
 
 	// Start components
@@ -64,7 +66,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	if err := s.telemetry.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start telemetry manager: %w", err)
+		return fmt.Errorf("failed to start telemetry bridge: %w", err)
 	}
 
 	s.isRunning = true
@@ -86,13 +88,13 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.cancelFunc()
 	}
 
-	// Stop components
-	if err := s.pluginMgr.Stop(ctx); err != nil {
-		s.logger.Error("Error stopping plugin manager", zap.Error(err))
+	// Stop components in reverse order
+	if err := s.telemetry.Stop(ctx); err != nil {
+		s.logger.Error("error stopping telemetry bridge", zap.Error(err))
 	}
 
-	if err := s.telemetry.Stop(ctx); err != nil {
-		s.logger.Error("Error stopping telemetry manager", zap.Error(err))
+	if err := s.pluginMgr.Stop(ctx); err != nil {
+		s.logger.Error("error stopping plugin manager", zap.Error(err))
 	}
 
 	s.isRunning = false

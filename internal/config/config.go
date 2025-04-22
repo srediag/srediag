@@ -3,113 +3,49 @@ package config
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/viper"
+
+	"github.com/srediag/srediag/internal/config/diagnostic"
 )
 
-// Config represents the global application configuration
-type Config struct {
-	Version   string          `mapstructure:"version"`
-	Service   ServiceConfig   `mapstructure:"service"`
-	Telemetry TelemetryConfig `mapstructure:"telemetry"`
-	Plugins   PluginsConfig   `mapstructure:"plugins"`
-	Logging   LoggingConfig   `mapstructure:"logging"`
-	Security  SecurityConfig  `mapstructure:"security"`
+// SREDiagConfig represents the main SREDIAG configuration
+type SREDiagConfig struct {
+	Version    string                  `mapstructure:"version"`
+	Service    *SREDiagServiceConfig   `mapstructure:"service"`
+	Collector  *SREDiagCollectorConfig `mapstructure:"collector"`
+	Diagnostic *diagnostic.Config      `mapstructure:"diagnostic"`
 }
 
-// ServiceConfig represents service configuration
-type ServiceConfig struct {
+// SREDiagServiceConfig contains service configurations
+type SREDiagServiceConfig struct {
 	Name        string `mapstructure:"name"`
 	Environment string `mapstructure:"environment"`
+	Version     string `mapstructure:"version"`
 }
 
-// TelemetryConfig represents OpenTelemetry configuration
-type TelemetryConfig struct {
-	Enabled            bool              `mapstructure:"enabled"`
-	ServiceName        string            `mapstructure:"service_name"`
-	Endpoint           string            `mapstructure:"endpoint"`
-	Protocol           string            `mapstructure:"protocol"`
-	Environment        string            `mapstructure:"environment"`
-	ResourceAttributes map[string]string `mapstructure:"resource_attributes"`
-	Sampling           SamplingConfig    `mapstructure:"sampling"`
-	Traces             TracesConfig      `mapstructure:"traces"`
-	Metrics            MetricsConfig     `mapstructure:"metrics"`
+// SREDiagCollectorConfig contains collector configurations
+type SREDiagCollectorConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	ConfigPath string `mapstructure:"config_path"`
 }
 
-// SamplingConfig represents trace sampling configuration
-type SamplingConfig struct {
-	Type string  `mapstructure:"type"`
-	Rate float64 `mapstructure:"rate"`
+// IsEnabled returns whether the collector is enabled
+func (c *SREDiagCollectorConfig) IsEnabled() bool {
+	return c.Enabled
 }
 
-// PluginsConfig represents plugin configuration
-type PluginsConfig struct {
-	Directory string                            `mapstructure:"directory"`
-	Enabled   []string                          `mapstructure:"enabled"`
-	Settings  map[string]map[string]interface{} `mapstructure:"settings"`
+// GetConfigPath returns the collector configuration path
+func (c *SREDiagCollectorConfig) GetConfigPath() string {
+	return c.ConfigPath
 }
 
-// LoggingConfig represents logging configuration
-type LoggingConfig struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
-	Output string `mapstructure:"output"`
-}
-
-// SecurityConfig represents security configuration
-type SecurityConfig struct {
-	TLS  TLSConfig  `mapstructure:"tls"`
-	Auth AuthConfig `mapstructure:"auth"`
-}
-
-// TLSConfig represents TLS configuration
-type TLSConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	CertFile string `mapstructure:"cert_file"`
-	KeyFile  string `mapstructure:"key_file"`
-	CAFile   string `mapstructure:"ca_file"`
-}
-
-// AuthConfig represents authentication configuration
-type AuthConfig struct {
-	Type      string          `mapstructure:"type"`
-	TokenFile string          `mapstructure:"token_file"`
-	Basic     BasicAuthConfig `mapstructure:"basic"`
-	OAuth     OAuthConfig     `mapstructure:"oauth"`
-}
-
-// BasicAuthConfig represents basic authentication configuration
-type BasicAuthConfig struct {
-	Username     string `mapstructure:"username"`
-	PasswordFile string `mapstructure:"password_file"`
-}
-
-// OAuthConfig represents OAuth configuration
-type OAuthConfig struct {
-	ClientID         string   `mapstructure:"client_id"`
-	ClientSecretFile string   `mapstructure:"client_secret_file"`
-	TokenURL         string   `mapstructure:"token_url"`
-	Scopes           []string `mapstructure:"scopes"`
-}
-
-// TracesConfig represents trace-specific configuration
-type TracesConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// MetricsConfig represents metrics-specific configuration
-type MetricsConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// LoadConfig loads configuration from a file
-func LoadConfig(filePath string) (*Config, error) {
+// LoadConfig loads configuration from file
+func LoadConfig(filePath string) (*SREDiagConfig, error) {
 	v := viper.New()
 	v.SetConfigFile(filePath)
 
-	// Set default values before reading the config file
-	setDefaults(v)
+	setDefaultConfig(v)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -118,138 +54,56 @@ func LoadConfig(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
-	var cfg Config
+	var cfg SREDiagConfig
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("error decoding configuration: %w", err)
 	}
 
-	// Set default values for telemetry configuration
-	cfg.Telemetry.setDefaults()
-
-	if err := cfg.Validate(); err != nil {
+	if err := validateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-// Validate validates the configuration
-func (c *Config) Validate() error {
-	// Validate telemetry configuration
-	if c.Telemetry.Enabled {
-		if c.Telemetry.ServiceName == "" {
-			return fmt.Errorf("service name is required when telemetry is enabled")
-		}
-		if c.Telemetry.Endpoint == "" {
-			return fmt.Errorf("endpoint is required when telemetry is enabled")
-		}
+// validateConfig validates the configuration
+func validateConfig(cfg *SREDiagConfig) error {
+	if cfg.Service == nil {
+		return fmt.Errorf("service configuration is required")
 	}
-
-	// Validate plugins configuration
-	if c.Plugins.Directory == "" {
-		return fmt.Errorf("plugins directory is required")
+	if cfg.Service.Name == "" {
+		return fmt.Errorf("service name is required")
 	}
-	if _, err := os.Stat(c.Plugins.Directory); os.IsNotExist(err) {
-		return fmt.Errorf("plugins directory does not exist: %s", c.Plugins.Directory)
+	if cfg.Service.Environment == "" {
+		return fmt.Errorf("service environment is required")
 	}
-
-	// Validate logging configuration
-	if c.Logging.Level == "" {
-		c.Logging.Level = "info" // default value
+	if cfg.Service.Version == "" {
+		return fmt.Errorf("service version is required")
 	}
-	if c.Logging.Format == "" {
-		c.Logging.Format = "console" // default value
+	if cfg.Collector == nil {
+		return fmt.Errorf("collector configuration is required")
 	}
-	if c.Logging.Output == "" {
-		c.Logging.Output = "stdout" // default value
+	if cfg.Diagnostic == nil {
+		return fmt.Errorf("diagnostic configuration is required")
 	}
-
 	return nil
 }
 
-// Validate validates telemetry configuration
-func (c *TelemetryConfig) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
-
-	if c.ServiceName == "" {
-		return fmt.Errorf("service name is required when telemetry is enabled")
-	}
-
-	if c.Endpoint == "" {
-		return fmt.Errorf("endpoint is required when telemetry is enabled")
-	}
-
-	if c.Protocol == "" {
-		return fmt.Errorf("protocol is required when telemetry is enabled")
-	}
-
-	if !c.Traces.Enabled && !c.Metrics.Enabled {
-		return fmt.Errorf("at least one of traces or metrics must be enabled when telemetry is enabled")
-	}
-
-	return nil
-}
-
-// setDefaults sets default values for configuration
-func setDefaults(v *viper.Viper) {
+// setDefaultConfig sets default values for all configurations
+func setDefaultConfig(v *viper.Viper) {
+	// Service defaults
 	v.SetDefault("version", "v0.1.0")
 	v.SetDefault("service.name", "srediag")
 	v.SetDefault("service.environment", "production")
+	v.SetDefault("service.version", "v0.1.0")
 
-	v.SetDefault("telemetry.enabled", true)
-	v.SetDefault("telemetry.service_name", "srediag")
-	v.SetDefault("telemetry.endpoint", "http://localhost:4317")
-	v.SetDefault("telemetry.protocol", "grpc")
-	v.SetDefault("telemetry.environment", "production")
-	v.SetDefault("telemetry.sampling.type", "probabilistic")
-	v.SetDefault("telemetry.sampling.rate", 0.1)
+	// Collector defaults
+	v.SetDefault("collector.enabled", true)
+	v.SetDefault("collector.config_path", "configs/otel-config.yaml")
 
-	v.SetDefault("plugins.directory", "plugins")
-
-	v.SetDefault("logging.level", "info")
-	v.SetDefault("logging.format", "console")
-	v.SetDefault("logging.output", "stdout")
-
-	v.SetDefault("security.tls.enabled", false)
-	v.SetDefault("security.tls.cert_file", "/etc/srediag/certs/server.crt")
-	v.SetDefault("security.tls.key_file", "/etc/srediag/certs/server.key")
-	v.SetDefault("security.tls.ca_file", "/etc/srediag/certs/ca.crt")
-	v.SetDefault("security.auth.type", "none")
-}
-
-// setDefaults sets default values for configuration
-func (c *TelemetryConfig) setDefaults() {
-	if c.Protocol == "" {
-		c.Protocol = "grpc"
-	}
-
-	if c.ServiceName == "" {
-		c.ServiceName = "srediag"
-	}
-
-	if c.Endpoint == "" {
-		c.Endpoint = "localhost:4317"
-	}
-
-	// Default values for traces
-	if c.Traces.Enabled {
-		if c.Sampling.Rate == 0 {
-			c.Sampling.Rate = 0.1
-		}
-		if c.Sampling.Type == "" {
-			c.Sampling.Type = "probabilistic"
-		}
-	}
-
-	// Default values for metrics
-	if c.Metrics.Enabled {
-		if c.ResourceAttributes == nil {
-			c.ResourceAttributes = map[string]string{
-				"service.name": c.ServiceName,
-				"environment":  "production",
-			}
-		}
-	}
+	// Diagnostic defaults
+	v.SetDefault("diagnostic.system.enabled", true)
+	v.SetDefault("diagnostic.kubernetes.enabled", false)
+	v.SetDefault("diagnostic.cloud.enabled", false)
+	v.SetDefault("diagnostic.security.enabled", false)
 }
