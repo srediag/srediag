@@ -3,214 +3,179 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/propagation"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/srediag/srediag/internal/config"
 	"github.com/srediag/srediag/internal/lifecycle"
 )
 
-const (
-	defaultMetricInterval = 10 // segundos
-)
-
-// Manager gerencia a configuração e coleta de telemetria
+// Manager handles telemetry operations
 type Manager struct {
 	*lifecycle.BaseManager
-	logger     *zap.Logger
 	config     config.TelemetryConfig
 	version    string
-	mu         sync.RWMutex
-	tracerProv *sdktrace.TracerProvider
-	meterProv  *sdkmetric.MeterProvider
+	logger     *zap.Logger
+	tracerProv trace.TracerProvider
+	meterProv  metric.MeterProvider
 }
 
-// NewManager cria uma nova instância do gerenciador de telemetria
+// NewManager creates a new telemetry manager
 func NewManager(cfg config.TelemetryConfig, version string, logger *zap.Logger) (*Manager, error) {
 	if !cfg.Enabled {
-		logger.Info("telemetria desabilitada pela configuração")
+		logger.Info("telemetry is disabled")
 		return &Manager{
 			BaseManager: lifecycle.NewBaseManager(),
-			logger:      logger,
 			config:      cfg,
 			version:     version,
+			logger:      logger,
 		}, nil
 	}
 
 	return &Manager{
 		BaseManager: lifecycle.NewBaseManager(),
-		logger:      logger,
 		config:      cfg,
 		version:     version,
+		logger:      logger,
 	}, nil
 }
 
-// Start inicializa e inicia a coleta de telemetria
+// Start initializes the telemetry providers
 func (m *Manager) Start(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if err := m.CheckRunningState(false); err != nil {
 		return err
 	}
 
-	// Se a telemetria estiver desabilitada, retorna sem erro
 	if !m.config.Enabled {
-		m.logger.Info("telemetria desabilitada, não será iniciada")
+		m.SetRunning(true)
 		return nil
 	}
 
-	// Cria recurso com informações do serviço
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName(m.config.ServiceName),
-			semconv.ServiceVersion(m.version),
-			semconv.DeploymentEnvironment(m.config.Environment),
-		),
-	)
-	if err != nil {
-		return fmt.Errorf("falha ao criar recurso: %v", err)
+	// Initialize providers
+	if err := m.initProviders(ctx); err != nil {
+		return fmt.Errorf("failed to initialize providers: %w", err)
 	}
-
-	// Configura conexão gRPC
-	//nolint:staticcheck // TODO: Atualizar para NewClient em uma versão futura
-	conn, err := grpc.Dial(m.config.Endpoint,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("falha ao criar conexão gRPC: %v", err)
-	}
-
-	// Configura exportador de traces
-	traceExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithGRPCConn(conn),
-	)
-	if err != nil {
-		return fmt.Errorf("falha ao criar exportador de traces: %v", err)
-	}
-
-	// Configura amostragem baseada na configuração
-	var sampler sdktrace.Sampler
-	switch m.config.Sampling.Type {
-	case "always_on":
-		sampler = sdktrace.AlwaysSample()
-	case "always_off":
-		sampler = sdktrace.NeverSample()
-	case "probabilistic":
-		sampler = sdktrace.TraceIDRatioBased(m.config.Sampling.Rate)
-	default:
-		sampler = sdktrace.AlwaysSample()
-	}
-
-	// Configura provedor de traces
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(res),
-		sdktrace.WithBatcher(traceExporter),
-		sdktrace.WithSampler(sampler),
-	)
-	m.tracerProv = tracerProvider
-
-	// Configura exportador de métricas
-	metricExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithGRPCConn(conn),
-	)
-	if err != nil {
-		return fmt.Errorf("falha ao criar exportador de métricas: %v", err)
-	}
-
-	// Configura provedor de métricas
-	meterProvider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(
-			sdkmetric.NewPeriodicReader(
-				metricExporter,
-				sdkmetric.WithInterval(time.Duration(defaultMetricInterval)*time.Second),
-			),
-		),
-	)
-	m.meterProv = meterProvider
-
-	// Configura provedores globais
-	otel.SetTracerProvider(tracerProvider)
-	otel.SetMeterProvider(meterProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	m.SetRunning(true)
-	m.logger.Info("gerenciador de telemetria iniciado com sucesso")
-
+	m.logger.Info("telemetry manager started")
 	return nil
 }
 
-// Stop desliga a coleta de telemetria de forma graciosa
+// Stop shuts down the telemetry providers
 func (m *Manager) Stop(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if err := m.CheckRunningState(true); err != nil {
 		return err
 	}
 
-	// Se a telemetria estiver desabilitada, retorna sem erro
 	if !m.config.Enabled {
+		m.SetRunning(false)
 		return nil
 	}
 
-	var errs []error
-
-	// Desliga provedor de traces
-	if m.tracerProv != nil {
-		if err := m.tracerProv.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("falha ao desligar provedor de traces: %v", err))
-		}
-	}
-
-	// Desliga provedor de métricas
-	if m.meterProv != nil {
-		if err := m.meterProv.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("falha ao desligar provedor de métricas: %v", err))
-		}
+	// Shutdown providers
+	if err := m.shutdownProviders(ctx); err != nil {
+		return fmt.Errorf("failed to shutdown providers: %w", err)
 	}
 
 	m.SetRunning(false)
-
-	if len(errs) > 0 {
-		return fmt.Errorf("falha ao desligar telemetria: %v", errs)
-	}
-
-	m.logger.Info("gerenciador de telemetria parado com sucesso")
+	m.logger.Info("telemetry manager stopped")
 	return nil
 }
 
-// Tracer retorna um tracer nomeado
+// Tracer returns a named tracer
 func (m *Manager) Tracer(name string) trace.Tracer {
-	if !m.config.Enabled || m.tracerProv == nil {
-		return noop.NewTracerProvider().Tracer(name)
+	if !m.config.Enabled || !m.IsRunning() {
+		return nooptrace.NewTracerProvider().Tracer(name)
 	}
 	return m.tracerProv.Tracer(name)
 }
 
-// Meter retorna um meter nomeado
+// Meter returns a named meter
 func (m *Manager) Meter(name string) metric.Meter {
-	if !m.config.Enabled || m.meterProv == nil {
-		return sdkmetric.NewMeterProvider().Meter(name)
+	if !m.config.Enabled || !m.IsRunning() {
+		return noop.NewMeterProvider().Meter(name)
 	}
 	return m.meterProv.Meter(name)
+}
+
+// initProviders initializes the telemetry providers
+func (m *Manager) initProviders(ctx context.Context) error {
+	// Check if context is already done before proceeding
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context error before initializing providers: %w", err)
+	}
+
+	if m.config.Traces.Enabled {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while initializing tracer provider: %w", ctx.Err())
+		default:
+			// Use default tracer provider for now
+			// TODO: Implement custom tracer provider configuration
+			m.tracerProv = otel.GetTracerProvider()
+			m.logger.Info("traces enabled, using default tracer provider")
+		}
+	} else {
+		m.tracerProv = nooptrace.NewTracerProvider()
+		m.logger.Info("traces disabled, using noop tracer provider")
+	}
+
+	if m.config.Metrics.Enabled {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while initializing meter provider: %w", ctx.Err())
+		default:
+			// Use default meter provider for now
+			// TODO: Implement custom meter provider configuration
+			m.meterProv = otel.GetMeterProvider()
+			m.logger.Info("metrics enabled, using default meter provider")
+		}
+	} else {
+		m.meterProv = noop.NewMeterProvider()
+		m.logger.Info("metrics disabled, using noop meter provider")
+	}
+
+	// Set global providers
+	otel.SetTracerProvider(m.tracerProv)
+	otel.SetMeterProvider(m.meterProv)
+
+	return nil
+}
+
+// shutdownProviders shuts down the telemetry providers
+func (m *Manager) shutdownProviders(ctx context.Context) error {
+	var errs []error
+
+	// Shutdown tracer provider if it implements Shutdownable interface
+	if provider, ok := m.tracerProv.(interface{ Shutdown(context.Context) error }); ok {
+		if err := provider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown tracer provider: %w", err))
+		} else {
+			m.logger.Info("tracer provider shutdown successfully")
+		}
+	}
+
+	// Shutdown meter provider if it implements Shutdownable interface
+	if provider, ok := m.meterProv.(interface{ Shutdown(context.Context) error }); ok {
+		if err := provider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
+		} else {
+			m.logger.Info("meter provider shutdown successfully")
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during provider shutdown: %v", errs)
+	}
+	return nil
+}
+
+// SetConfig updates the telemetry configuration
+func (m *Manager) SetConfig(cfg config.TelemetryConfig) {
+	m.config = cfg
 }

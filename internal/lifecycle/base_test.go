@@ -4,15 +4,17 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBaseManager_InitialState(t *testing.T) {
 	bm := NewBaseManager()
 	if bm.IsRunning() {
-		t.Error("novo manager não deve estar rodando")
+		t.Error("new manager should not be running")
 	}
 	if !bm.IsHealthy() {
-		t.Error("novo manager deve estar saudável")
+		t.Error("new manager should be healthy")
 	}
 }
 
@@ -24,12 +26,12 @@ func TestBaseManager_Start(t *testing.T) {
 		wantError bool
 	}{
 		{
-			name:      "start quando parado",
+			name:      "start when stopped",
 			setup:     func(bm *BaseManager) {},
 			wantError: false,
 		},
 		{
-			name: "start quando já rodando",
+			name: "start when already running",
 			setup: func(bm *BaseManager) {
 				bm.SetRunning(true)
 			},
@@ -48,7 +50,7 @@ func TestBaseManager_Start(t *testing.T) {
 			}
 
 			if !tt.wantError && !bm.IsRunning() {
-				t.Error("Start() deve definir o estado como rodando")
+				t.Error("Start() should set state to running")
 			}
 		})
 	}
@@ -62,14 +64,14 @@ func TestBaseManager_Stop(t *testing.T) {
 		wantError bool
 	}{
 		{
-			name: "stop quando rodando",
+			name: "stop when running",
 			setup: func(bm *BaseManager) {
 				bm.SetRunning(true)
 			},
 			wantError: false,
 		},
 		{
-			name:      "stop quando já parado",
+			name:      "stop when already stopped",
 			setup:     func(bm *BaseManager) {},
 			wantError: true,
 		},
@@ -86,7 +88,7 @@ func TestBaseManager_Stop(t *testing.T) {
 			}
 
 			if !tt.wantError && bm.IsRunning() {
-				t.Error("Stop() deve definir o estado como não rodando")
+				t.Error("Stop() should set state to not running")
 			}
 		})
 	}
@@ -95,20 +97,20 @@ func TestBaseManager_Stop(t *testing.T) {
 func TestBaseManager_Health(t *testing.T) {
 	bm := NewBaseManager()
 
-	// Teste estado inicial
+	// Test initial state
 	if !bm.IsHealthy() {
-		t.Error("estado inicial de saúde deve ser true")
+		t.Error("initial health state should be true")
 	}
 
-	// Teste atualização de estado
+	// Test state updates
 	bm.UpdateHealth(false)
 	if bm.IsHealthy() {
-		t.Error("saúde deve ser false após UpdateHealth(false)")
+		t.Error("health should be false after UpdateHealth(false)")
 	}
 
 	bm.UpdateHealth(true)
 	if !bm.IsHealthy() {
-		t.Error("saúde deve ser true após UpdateHealth(true)")
+		t.Error("health should be true after UpdateHealth(true)")
 	}
 }
 
@@ -117,7 +119,7 @@ func TestBaseManager_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 	iterations := 1000
 
-	// Teste acesso concorrente ao estado running
+	// Test concurrent access to running state
 	go func() {
 		for i := 0; i < iterations; i++ {
 			bm.SetRunning(true)
@@ -133,7 +135,7 @@ func TestBaseManager_ConcurrentAccess(t *testing.T) {
 		done <- true
 	}()
 
-	// Teste acesso concorrente ao estado de saúde
+	// Test concurrent access to health state
 	go func() {
 		for i := 0; i < iterations; i++ {
 			bm.UpdateHealth(true)
@@ -149,14 +151,86 @@ func TestBaseManager_ConcurrentAccess(t *testing.T) {
 		done <- true
 	}()
 
-	// Adiciona timeout para evitar deadlock
+	// Add timeout to prevent deadlock
 	timeout := time.After(5 * time.Second)
 	for i := 0; i < 4; i++ {
 		select {
 		case <-done:
 			continue
 		case <-timeout:
-			t.Fatal("timeout esperando goroutines terminarem")
+			t.Fatal("timeout waiting for goroutines to finish")
 		}
 	}
+}
+
+func TestNewBaseManager(t *testing.T) {
+	manager := NewBaseManager()
+	assert.NotNil(t, manager)
+	assert.False(t, manager.IsRunning())
+}
+
+func TestBaseManager_SetRunning(t *testing.T) {
+	manager := NewBaseManager()
+
+	// Test setting to running
+	manager.SetRunning(true)
+	assert.True(t, manager.IsRunning())
+
+	// Test setting to stopped
+	manager.SetRunning(false)
+	assert.False(t, manager.IsRunning())
+}
+
+func TestBaseManager_CheckRunningState(t *testing.T) {
+	manager := NewBaseManager()
+
+	// Test expecting an error when checking for running state (wantRunning=true) while stopped
+	err := manager.CheckRunningState(true) // Should error: Expected running, but is stopped
+	assert.Error(t, err)
+	assert.Equal(t, ErrManagerNotRunning, err)
+
+	// Test expecting no error when checking for stopped state (wantRunning=false) while stopped
+	err = manager.CheckRunningState(false) // Should not error: Expected stopped, and is stopped
+	assert.NoError(t, err)
+
+	// Set to running
+	manager.SetRunning(true)
+
+	// Test expecting an error when checking for stopped state (wantRunning=false) while running
+	err = manager.CheckRunningState(false) // Should error: Expected stopped, but is running
+	assert.Error(t, err)
+	assert.Equal(t, ErrManagerAlreadyRunning, err)
+
+	// Test expecting no error when checking for running state (wantRunning=true) while running
+	err = manager.CheckRunningState(true) // Should not error: Expected running, and is running
+	assert.NoError(t, err)
+}
+
+func TestBaseManager_IsRunning(t *testing.T) {
+	manager := NewBaseManager()
+
+	// Initial state
+	assert.False(t, manager.IsRunning())
+
+	// After setting to running
+	manager.SetRunning(true)
+	assert.True(t, manager.IsRunning())
+
+	// After setting to stopped
+	manager.SetRunning(false)
+	assert.False(t, manager.IsRunning())
+}
+
+func TestBaseManager_Lifecycle(t *testing.T) {
+	manager := NewBaseManager()
+
+	// Test initial state
+	assert.False(t, manager.IsRunning())
+
+	// Test setting running state
+	manager.SetRunning(true)
+	assert.True(t, manager.IsRunning())
+
+	manager.SetRunning(false)
+	assert.False(t, manager.IsRunning())
 }

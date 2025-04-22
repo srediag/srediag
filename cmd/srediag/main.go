@@ -69,13 +69,13 @@ func createStartCmd() *cobra.Command {
 		Long:  `Start the SREDIAG service with the specified configuration`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load configuration
-			cfg, err := config.Load(cfgFile)
+			cfg, err := config.LoadConfig(cfgFile)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			// Initialize logger
-			if err := logger.Init(cfg.Debug); err != nil {
+			if err := logger.Init(false); err != nil {
 				return fmt.Errorf("failed to initialize logger: %w", err)
 			}
 			log, err := logger.Get()

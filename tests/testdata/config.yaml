@@ -1,0 +1,26 @@
+service:
+  name: "srediag-test"
+  environment: "test"
+
+telemetry:
+  enabled: true
+  service_name: "srediag-test"
+  environment: "test"
+  endpoint: "localhost:4317"
+  sampling:
+    type: "always_on"
+    rate: 1.0
+
+plugins:
+  directory: "testdata/plugins"
+  enabled:
+    - "mock-plugin"
+  settings:
+    mock-plugin:
+      key: "value"
+      enabled: true
+
+logging:
+  level: "debug"
+  format: "console"
+  output: "stdout" 

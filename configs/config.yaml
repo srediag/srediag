@@ -7,6 +7,8 @@ log_level: "info"
 service:
   name: "srediag"
   environment: "${SREDIAG_ENV:-production}"
+  instance_id: "${INSTANCE_ID:-}"
+  region: "${REGION:-}"
 
 # OpenTelemetry configuration
 telemetry:
@@ -18,10 +20,73 @@ telemetry:
   resource_attributes:
     deployment.region: "${DEPLOYMENT_REGION:-unknown}"
     service.instance.id: "${INSTANCE_ID:-unknown}"
+    service.version: "${VERSION:-unknown}"
+
+# Processors configuration
+processors:
+  deduplication:
+    enabled: true
+    max_age: "2m"
+    repeat_attr: "repeat_count"
+
+  baseline:
+    enabled: true
+    monitored_paths:
+      - "/etc/**/*.conf"
+      - "/etc/ssh/sshd_config"
+      - "/etc/kubernetes/**/*.yaml"
+      - "/etc/srediag/**/*.yaml"
+    baseline_store: "/var/lib/srediag/baseline.db"
+    scan_interval: "5m"
+
+  k8s_enricher:
+    enabled: true
+    include_secrets: false
+    include_configmaps: true
+    label_selector: "app.kubernetes.io/managed-by=srediag"
+    namespaces:
+      - "default"
+      - "kube-system"
+      - "monitoring"
+      - "logging"
+
+# Exporters configuration
+exporters:
+  cmdb:
+    enabled: true
+    endpoint: "${CMDB_ENDPOINT:-http://cmdb:8080/v1/ci}"
+    auth_token: "${CMDB_TOKEN:-}"
+    batch_size: 100
+    flush_interval: "30s"
+    retry:
+      enabled: true
+      max_retries: 3
+      initial_interval: "1s"
+      max_interval: "10s"
+
+  security:
+    enabled: true
+    endpoint: "${SIEM_ENDPOINT:-http://siem:8080/v1/events}"
+    auth_token: "${SIEM_TOKEN:-}"
+    batch_size: 100
+    flush_interval: "10s"
+    severity_mapping:
+      config_change: "INFO"
+      access_denied: "WARNING"
+      auth_failure: "WARNING"
+      data_leak: "CRITICAL"
+      malware: "CRITICAL"
+      system_error: "ERROR"
+      policy_violation: "WARNING"
+    retry:
+      enabled: true
+      max_retries: 3
+      initial_interval: "1s"
+      max_interval: "10s"
 
 # Plugin configuration
 plugins:
-  directory: "${PLUGIN_DIR:-plugins}"
+  directory: "${PLUGIN_DIR:-/etc/srediag/plugins}"
   enabled:
     - "metrics"
     - "logs"
@@ -31,13 +96,23 @@ plugins:
       interval: "${METRICS_INTERVAL:-10s}"
       exporters:
         - "prometheus"
+      prometheus:
+        port: 9090
+        path: "/metrics"
     logs:
       paths:
         - "/var/log/*.log"
+        - "/var/log/containers/*.log"
       exclude:
         - "*.gz"
+        - "*.old"
+      parsers:
+        - "json"
+        - "regex"
     traces:
       sample_rate: 0.1
+      batch_size: 1000
+      max_queue_size: 5000
 
 # Security configuration
 security:
@@ -52,3 +127,21 @@ security:
     basic:
       username: "${BASIC_AUTH_USER:-}"
       password_file: "${BASIC_AUTH_PASSWORD_FILE:-}"
+
+# Logging configuration
+logging:
+  level: "${LOG_LEVEL:-info}"
+  format: "${LOG_FORMAT:-json}"
+  output: "${LOG_OUTPUT:-stdout}"
+  file:
+    path: "${LOG_FILE:-/var/log/srediag/srediag.log}"
+    max_size: "${LOG_MAX_SIZE:-100}"  # MB
+    max_age: "${LOG_MAX_AGE:-7}"      # days
+    max_backups: "${LOG_MAX_BACKUPS:-5}"
+    compress: true
+
+# Metrics configuration
+metrics:
+  enabled: true
+  address: "${METRICS_ADDRESS:-:9090}"
+  path: "${METRICS_PATH:-/metrics}"

@@ -7,14 +7,14 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
-// DiffGenerator encapsula a funcionalidade de geração de diffs
+// DiffGenerator encapsulates diff generation functionality
 type DiffGenerator struct {
 	FromFile string
 	ToFile   string
 	Context  int
 }
 
-// NewDiffGenerator cria uma nova instância de DiffGenerator
+// NewDiffGenerator creates a new instance of DiffGenerator
 func NewDiffGenerator(fromFile, toFile string, context int) *DiffGenerator {
 	return &DiffGenerator{
 		FromFile: fromFile,
@@ -23,7 +23,7 @@ func NewDiffGenerator(fromFile, toFile string, context int) *DiffGenerator {
 	}
 }
 
-// GenerateUnifiedDiff gera um diff unificado entre duas sequências de strings
+// GenerateUnifiedDiff generates a unified diff between two string sequences
 func (d *DiffGenerator) GenerateUnifiedDiff(a, b []string) (string, error) {
 	if len(a) == 0 && len(b) == 0 {
 		return fmt.Sprintf("--- %s\n+++ %s\n", d.FromFile, d.ToFile), nil
@@ -39,7 +39,7 @@ func (d *DiffGenerator) GenerateUnifiedDiff(a, b []string) (string, error) {
 	return difflib.GetUnifiedDiffString(diff)
 }
 
-// GenerateContextDiff gera um diff de contexto entre duas sequências de strings
+// GenerateContextDiff generates a context diff between two string sequences
 func (d *DiffGenerator) GenerateContextDiff(a, b []string) (string, error) {
 	if len(a) == 0 && len(b) == 0 {
 		return fmt.Sprintf("*** %s\n--- %s\n", d.FromFile, d.ToFile), nil

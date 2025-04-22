@@ -1,24 +1,24 @@
 package core
 
 const (
-	// DefaultMetricInterval é o intervalo padrão para coleta de métricas
-	DefaultMetricInterval = 10 // segundos
+	// DefaultMetricInterval is the default interval for metric collection
+	DefaultMetricInterval = 10 // seconds
 
-	// DefaultSamplingRate é a taxa de amostragem padrão para traces
+	// DefaultSamplingRate is the default sampling rate for traces
 	DefaultSamplingRate = 1.0
 
-	// SamplingTypeAlwaysOn indica que todos os traces devem ser coletados
+	// SamplingTypeAlwaysOn indicates that all traces should be collected
 	SamplingTypeAlwaysOn = "always_on"
 
-	// SamplingTypeAlwaysOff indica que nenhum trace deve ser coletado
+	// SamplingTypeAlwaysOff indicates that no traces should be collected
 	SamplingTypeAlwaysOff = "always_off"
 
-	// SamplingTypeProbabilistic indica que os traces devem ser coletados probabilisticamente
+	// SamplingTypeProbabilistic indicates that traces should be collected probabilistically
 	SamplingTypeProbabilistic = "probabilistic"
 
-	// DefaultPluginPattern é o padrão para arquivos de plugin
+	// DefaultPluginPattern is the pattern for plugin files
 	DefaultPluginPattern = "*.so"
 
-	// DefaultPluginSymbol é o símbolo que deve ser exportado pelos plugins
+	// DefaultPluginSymbol is the symbol that must be exported by plugins
 	DefaultPluginSymbol = "Plugin"
 )

@@ -1,5 +1,5 @@
 // Package interfaces defines the core interfaces for the SREDIAG framework.
-package core
+package lifecycle
 
 import "context"
 
