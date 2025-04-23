@@ -7,8 +7,6 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/otelcol"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.uber.org/zap"
 
 	"github.com/srediag/srediag/internal/config"
@@ -19,19 +17,20 @@ import (
 // SREDiag represents the main application instance
 type SREDiag struct {
 	logger *zap.Logger
-	config *config.SREDiagConfig
+	config *config.Root
 
-	pluginManager   core.PluginManager
-	resourceMonitor core.ResourceMonitor
-	configManager   core.ConfigManager
-	telemetryBridge core.TelemetryBridge
-	collector       *otelcol.Collector
+	pluginManager     core.PluginManager
+	resourceMonitor   core.ResourceMonitor
+	configManager     core.ConfigManager
+	telemetryBridge   core.TelemetryBridge
+	collector         *otelcol.Collector
+	diagnosticManager core.DiagnosticManager
 
 	// Diagnostic components
-	systemDiag     diagnostic.Component
-	kubernetesDiag diagnostic.Component
-	cloudDiag      diagnostic.Component
-	securityDiag   diagnostic.Component
+	systemDiag     core.Diagnostic
+	kubernetesDiag core.Diagnostic
+	cloudDiag      core.Diagnostic
+	securityDiag   core.Diagnostic
 
 	mu      sync.RWMutex
 	health  bool
@@ -42,7 +41,7 @@ type SREDiag struct {
 var _ core.ISREDiagRunner = (*SREDiag)(nil)
 
 // NewSREDiag creates a new instance of SREDiag
-func NewSREDiag(logger *zap.Logger, cfg *config.SREDiagConfig) (*SREDiag, error) {
+func NewSREDiag(logger *zap.Logger, cfg *config.Root) (*SREDiag, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -63,15 +62,7 @@ func NewSREDiag(logger *zap.Logger, cfg *config.SREDiagConfig) (*SREDiag, error)
 	s.pluginManager = pluginManager
 
 	// Create resource for telemetry
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			"", // Empty schema version as it's not needed
-			semconv.ServiceName(cfg.Service.Name),
-			semconv.ServiceVersion(cfg.Service.Version),
-			semconv.DeploymentEnvironment(cfg.Service.Environment),
-		),
-	)
+	res, err := cfg.CreateResource()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry resource: %w", err)
 	}
@@ -98,8 +89,12 @@ func NewSREDiag(logger *zap.Logger, cfg *config.SREDiagConfig) (*SREDiag, error)
 	}
 	s.configManager = configManager
 
+	// Initialize diagnostic manager
+	diagnosticManager := core.NewDiagnosticManager(logger.Named("diagnostic-manager"))
+	s.diagnosticManager = diagnosticManager
+
 	// Initialize collector if enabled
-	if cfg.Collector.IsEnabled() {
+	if cfg.Collector.Enabled {
 		if err := s.initializeCollector(); err != nil {
 			return nil, fmt.Errorf("failed to initialize collector: %w", err)
 		}
@@ -391,4 +386,14 @@ func (s *SREDiag) GetConfigManager() core.ConfigManager {
 // GetTelemetryBridge returns the telemetry bridge instance
 func (s *SREDiag) GetTelemetryBridge() core.TelemetryBridge {
 	return s.telemetryBridge
+}
+
+// GetConfig returns the system configuration
+func (s *SREDiag) GetConfig() core.ISREDiagConfig {
+	return s.config
+}
+
+// GetDiagnosticManager returns the diagnostic manager
+func (s *SREDiag) GetDiagnosticManager() core.DiagnosticManager {
+	return s.diagnosticManager
 }

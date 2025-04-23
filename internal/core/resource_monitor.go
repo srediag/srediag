@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -18,6 +17,7 @@ type DefaultResourceMonitor struct {
 	meter      metric.Meter
 	thresholds ResourceThresholds
 	usage      ResourceUsage
+	metrics    map[string]float64
 	mu         sync.RWMutex
 	healthy    bool
 	running    bool
@@ -26,11 +26,18 @@ type DefaultResourceMonitor struct {
 
 // NewResourceMonitor creates a new instance of DefaultResourceMonitor
 func NewResourceMonitor(logger *zap.Logger, meter metric.Meter) *DefaultResourceMonitor {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return &DefaultResourceMonitor{
-		logger:   logger,
-		meter:    meter,
-		healthy:  true,
-		stopChan: make(chan struct{}),
+		logger:     logger,
+		meter:      meter,
+		thresholds: ResourceThresholds{},
+		usage:      ResourceUsage{},
+		metrics:    make(map[string]float64),
+		healthy:    true,
+		stopChan:   make(chan struct{}),
 	}
 }
 
@@ -85,7 +92,6 @@ func (rm *DefaultResourceMonitor) CollectMetrics(ctx context.Context) ([]Metric,
 	}
 
 	metrics := make([]Metric, 0)
-	now := time.Now().UnixNano()
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -93,35 +99,35 @@ func (rm *DefaultResourceMonitor) CollectMetrics(ctx context.Context) ([]Metric,
 	// Memory metrics
 	metrics = append(metrics, []Metric{
 		{
-			Name:       "system.memory.alloc",
-			Value:      float64(memStats.Alloc),
-			MetricType: MetricTypeGauge,
-			Timestamp:  now,
-			Labels:     map[string]string{"unit": "bytes"},
+			Name:        "system.memory.alloc",
+			Value:       float64(memStats.Alloc),
+			Type:        MetricTypeGauge,
+			Labels:      []string{"unit:bytes"},
+			Description: "Current memory allocation",
 		},
 		{
-			Name:       "system.memory.total",
-			Value:      float64(memStats.TotalAlloc),
-			MetricType: MetricTypeGauge,
-			Timestamp:  now,
-			Labels:     map[string]string{"unit": "bytes"},
+			Name:        "system.memory.total",
+			Value:       float64(memStats.TotalAlloc),
+			Type:        MetricTypeGauge,
+			Labels:      []string{"unit:bytes"},
+			Description: "Total memory allocated",
 		},
 		{
-			Name:       "system.memory.heap",
-			Value:      float64(memStats.HeapAlloc),
-			MetricType: MetricTypeGauge,
-			Timestamp:  now,
-			Labels:     map[string]string{"unit": "bytes"},
+			Name:        "system.memory.heap",
+			Value:       float64(memStats.HeapAlloc),
+			Type:        MetricTypeGauge,
+			Labels:      []string{"unit:bytes"},
+			Description: "Current heap allocation",
 		},
 	}...)
 
 	// CPU metrics
 	metrics = append(metrics, Metric{
-		Name:       "system.cpu.goroutines",
-		Value:      float64(runtime.NumGoroutine()),
-		MetricType: MetricTypeGauge,
-		Timestamp:  now,
-		Labels:     map[string]string{"unit": "count"},
+		Name:        "system.cpu.goroutines",
+		Value:       float64(runtime.NumGoroutine()),
+		Type:        MetricTypeGauge,
+		Labels:      []string{"unit:count"},
+		Description: "Number of goroutines",
 	})
 
 	return metrics, nil
@@ -172,7 +178,12 @@ func (rm *DefaultResourceMonitor) monitorResources(ctx context.Context) {
 		return
 	}
 
-	_, err = rm.meter.RegisterCallback(func(ctx context.Context, o metric.Observer) error {
+	_, err = rm.meter.RegisterCallback(func(callbackCtx context.Context, o metric.Observer) error {
+		// Check if the context is still valid
+		if err := callbackCtx.Err(); err != nil {
+			return err
+		}
+
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
 
@@ -184,16 +195,17 @@ func (rm *DefaultResourceMonitor) monitorResources(ctx context.Context) {
 
 		rm.mu.Lock()
 		rm.usage = ResourceUsage{
-			Memory: float64(memStats.Alloc) / float64(memStats.Sys) * 100,
-			CPU:    float64(runtime.NumGoroutine()),
+			CPUUsage:    float64(runtime.NumGoroutine()),
+			MemoryUsage: float64(memStats.Alloc) / float64(memStats.Sys) * 100,
+			DiskUsage:   0, // TODO: Implement disk usage monitoring
 		}
 
 		// Check thresholds
 		rm.healthy = true
-		if rm.usage.Memory > rm.thresholds.MemoryThreshold {
+		if rm.usage.MemoryUsage > rm.thresholds.MemoryThreshold {
 			rm.healthy = false
 			rm.logger.Warn("memory usage above threshold",
-				zap.Float64("usage", rm.usage.Memory),
+				zap.Float64("usage", rm.usage.MemoryUsage),
 				zap.Float64("threshold", rm.thresholds.MemoryThreshold))
 		}
 		rm.mu.Unlock()
@@ -206,5 +218,38 @@ func (rm *DefaultResourceMonitor) monitorResources(ctx context.Context) {
 		return
 	}
 
-	<-rm.stopChan
+	select {
+	case <-ctx.Done():
+		return
+	case <-rm.stopChan:
+		return
+	}
+}
+
+// GetMetrics implements ResourceMonitor
+func (rm *DefaultResourceMonitor) GetMetrics() map[string]float64 {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	// Return a copy of the metrics map to prevent concurrent access issues
+	metrics := make(map[string]float64, len(rm.metrics))
+	for k, v := range rm.metrics {
+		metrics[k] = v
+	}
+	return metrics
+}
+
+// SetThreshold implements ResourceMonitor
+func (rm *DefaultResourceMonitor) SetThreshold(metric string, value float64) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	rm.thresholds.MemoryThreshold = value
+	return nil
+}
+
+// GetThresholds implements ResourceMonitor
+func (rm *DefaultResourceMonitor) GetThresholds() ResourceThresholds {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return rm.thresholds
 }

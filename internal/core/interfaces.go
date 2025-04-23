@@ -1,3 +1,4 @@
+// Package core provides core interfaces and components for SREDIAG
 package core
 
 import (
@@ -8,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Component represents a core component of the application
+// Component represents a base component interface
 type Component interface {
 	// Start starts the component
 	Start(ctx context.Context) error
@@ -18,110 +19,48 @@ type Component interface {
 	IsHealthy() bool
 }
 
-// Plugin represents a SREDIAG plugin
+// Plugin represents a plugin interface
 type Plugin interface {
 	Component
-	// Type returns the plugin type
-	Type() PluginType
-	// Name returns the plugin name
-	Name() string
-	// Version returns the plugin version
-	Version() string
+	// GetName returns the plugin name
+	GetName() string
+	// GetVersion returns the plugin version
+	GetVersion() string
+	// GetType returns the plugin type
+	GetType() string
+	// GetCapabilities returns the capabilities of the plugin
+	GetCapabilities() []Capability
+	// GetStatus returns the status of the plugin
+	GetStatus() Status
 	// Configure configures the plugin with the given configuration
 	Configure(cfg interface{}) error
 }
 
-// PluginType represents the type of a plugin
-type PluginType string
-
-const (
-	// PluginTypeDiagnostic represents a diagnostic plugin
-	PluginTypeDiagnostic PluginType = "diagnostic"
-	// PluginTypeAnalysis represents an analysis plugin
-	PluginTypeAnalysis PluginType = "analysis"
-	// PluginTypeManagement represents a management plugin
-	PluginTypeManagement PluginType = "management"
-)
-
-// PluginManager manages the lifecycle of plugins
-type PluginManager interface {
-	Component
-	// LoadPlugin loads a plugin from the given path
-	LoadPlugin(path string) (Plugin, error)
-	// UnloadPlugin unloads a plugin by name
-	UnloadPlugin(name string) error
-	// GetPlugin returns a plugin by name
-	GetPlugin(name string) (Plugin, error)
-	// ListPlugins returns all loaded plugins
-	ListPlugins() []Plugin
-}
-
-// ResourceMonitor monitors system resources
+// ResourceMonitor monitors system and application resources
 type ResourceMonitor interface {
 	Component
-	// CollectMetrics collects system metrics
-	CollectMetrics(ctx context.Context) ([]Metric, error)
-	// GetResourceUsage returns current resource usage
-	GetResourceUsage() ResourceUsage
-	// SetThresholds sets resource usage thresholds
-	SetThresholds(thresholds ResourceThresholds) error
+	// GetMetrics returns the current resource metrics
+	GetMetrics() map[string]float64
+	// SetThreshold sets a threshold for a metric
+	SetThreshold(metric string, value float64) error
+	// GetThresholds returns all configured thresholds
+	GetThresholds() ResourceThresholds
 }
 
-// Metric represents a system metric
-type Metric struct {
-	Name       string
-	Value      float64
-	Labels     map[string]string
-	Timestamp  int64
-	MetricType MetricType
-}
-
-// MetricType represents the type of a metric
-type MetricType string
-
-const (
-	// MetricTypeGauge represents a gauge metric
-	MetricTypeGauge MetricType = "gauge"
-	// MetricTypeCounter represents a counter metric
-	MetricTypeCounter MetricType = "counter"
-	// MetricTypeHistogram represents a histogram metric
-	MetricTypeHistogram MetricType = "histogram"
-)
-
-// ResourceUsage represents system resource usage
-type ResourceUsage struct {
-	CPU    float64
-	Memory float64
-	Disk   float64
-}
-
-// ResourceThresholds represents resource usage thresholds
-type ResourceThresholds struct {
-	CPUThreshold    float64
-	MemoryThreshold float64
-	DiskThreshold   float64
-}
-
-// EventProcessor processes system events
-type EventProcessor interface {
+// ConfigManager manages configuration loading and validation
+type ConfigManager interface {
 	Component
-	// ProcessEvent processes a system event
-	ProcessEvent(ctx context.Context, event Event) error
-	// GetEventTypes returns supported event types
-	GetEventTypes() []string
+	// LoadConfig loads configuration from the given path
+	LoadConfig(path string) error
+	// SaveConfig saves configuration to the given path
+	SaveConfig(path string) error
+	// GetConfig returns the current configuration
+	GetConfig() interface{}
+	// ValidateConfig validates the given configuration
+	ValidateConfig(cfg interface{}) error
 }
 
-// Event represents a system event
-type Event struct {
-	Type      string
-	Source    string
-	Timestamp int64
-	Severity  string
-	Message   string
-	Data      map[string]interface{}
-}
-
-// TelemetryBridge manages telemetry data
+// TelemetryBridge provides OpenTelemetry integration
 type TelemetryBridge interface {
 	Component
 	// GetMeterProvider returns the OpenTelemetry meter provider
@@ -132,15 +71,79 @@ type TelemetryBridge interface {
 	GetLogger() *zap.Logger
 }
 
-// ConfigManager manages configuration
-type ConfigManager interface {
+// Runner represents a runnable component
+type Runner interface {
 	Component
-	// LoadConfig loads configuration from the given path
-	LoadConfig(path string) error
-	// GetConfig returns the current configuration
-	GetConfig() interface{}
-	// ValidateConfig validates the given configuration
-	ValidateConfig(cfg interface{}) error
-	// WatchConfig watches for configuration changes
-	WatchConfig(ctx context.Context) (<-chan interface{}, error)
+	// GetLogger returns the configured logger
+	GetLogger() *zap.Logger
+}
+
+// MetricsProvider provides metrics functionality
+type MetricsProvider interface {
+	// GetMeter returns a meter with the given name
+	GetMeter(name string) metric.Meter
+	// RegisterCallback registers a callback for metrics collection
+	RegisterCallback(callback func(context.Context) error) error
+}
+
+// TracingProvider provides tracing functionality
+type TracingProvider interface {
+	// GetTracer returns a tracer with the given name
+	GetTracer(name string) trace.Tracer
+	// StartSpan starts a new span
+	StartSpan(ctx context.Context, name string) (context.Context, trace.Span)
+}
+
+// LoggingProvider provides logging functionality
+type LoggingProvider interface {
+	// GetLogger returns a logger with the given name
+	GetLogger(name string) *zap.Logger
+	// WithFields returns a new logger with the given fields
+	WithFields(fields ...zap.Field) *zap.Logger
+}
+
+// PluginProvider provides plugin management functionality
+type PluginProvider interface {
+	// Start starts the plugin provider
+	Start(ctx context.Context) error
+	// Stop stops the plugin provider
+	Stop(ctx context.Context) error
+	// IsHealthy returns the health status of the plugin provider
+	IsHealthy() bool
+	// GetPlugins returns a list of available plugins
+	GetPlugins() ([]string, error)
+	// GetPluginInfo returns information about a plugin
+	GetPluginInfo(name string) (interface{}, error)
+	// LoadPlugin loads a plugin
+	LoadPlugin(name string) error
+	// UnloadPlugin unloads a plugin
+	UnloadPlugin(name string) error
+}
+
+// ISREDiagRunner defines the system runner interface
+type ISREDiagRunner interface {
+	Component
+	// GetLogger returns the configured logger
+	GetLogger() *zap.Logger
+	// GetConfig returns the system configuration
+	GetConfig() ISREDiagConfig
+	// GetPluginManager returns the plugin manager
+	GetPluginManager() PluginManager
+	// GetTelemetryBridge returns the telemetry bridge
+	GetTelemetryBridge() TelemetryBridge
+	// GetDiagnosticManager returns the diagnostic manager
+	GetDiagnosticManager() DiagnosticManager
+}
+
+// PluginManager manages plugin lifecycle
+type PluginManager interface {
+	Component
+	// LoadPlugin loads a plugin from the given path
+	LoadPlugin(path string) error
+	// UnloadPlugin unloads a plugin by name
+	UnloadPlugin(name string) error
+	// GetPlugin returns a plugin by name
+	GetPlugin(name string) (Plugin, error)
+	// ListPlugins returns all loaded plugins
+	ListPlugins() []Plugin
 }

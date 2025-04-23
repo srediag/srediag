@@ -8,38 +8,26 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/srediag/srediag/internal/config/diagnostic"
+	"github.com/srediag/srediag/internal/core"
 )
 
 // Component represents a diagnostic component
 type Component interface {
-	// Start starts the component
-	Start(ctx context.Context) error
-	// Stop stops the component
-	Stop(ctx context.Context) error
-	// IsHealthy returns the health status of the component
-	IsHealthy() bool
-	// GetType returns the diagnostic type
-	GetType() Type
-	// GetName returns the diagnostic name
-	GetName() string
-	// GetVersion returns the diagnostic version
-	GetVersion() string
-	// Configure configures the diagnostic with the given configuration
-	Configure(cfg interface{}) error
+	core.Diagnostic
 }
 
 // Type represents the type of a diagnostic component
-type Type string
+type Type = core.Type
 
 const (
 	// TypeSystem represents a system diagnostic component
-	TypeSystem Type = "system"
+	TypeSystem = core.TypeSystem
 	// TypeKubernetes represents a Kubernetes diagnostic component
-	TypeKubernetes Type = "kubernetes"
+	TypeKubernetes = core.TypeKubernetes
 	// TypeCloud represents a cloud diagnostic component
-	TypeCloud Type = "cloud"
+	TypeCloud = core.TypeCloud
 	// TypeSecurity represents a security diagnostic component
-	TypeSecurity Type = "security"
+	TypeSecurity = core.TypeSecurity
 )
 
 // Base provides a base implementation of Component
@@ -152,6 +140,21 @@ func boolToFloat64(b bool) float64 {
 		return 1.0
 	}
 	return 0.0
+}
+
+// GetInterval implements Component
+func (d *Base) GetInterval() string {
+	return "30s" // Default interval
+}
+
+// GetThresholds implements Component
+func (d *Base) GetThresholds() map[string]float64 {
+	return make(map[string]float64) // Default empty thresholds
+}
+
+// Collect implements Component
+func (d *Base) Collect(ctx context.Context) (map[string]interface{}, error) {
+	return make(map[string]interface{}), nil // Default empty collection
 }
 
 // System represents a system diagnostic component

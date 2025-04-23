@@ -1,0 +1,47 @@
+core:
+  log_level: info
+  log_format: json
+  security:
+    tls:
+      enabled: false
+      cert_file: /etc/srediag/certs/server.crt
+      key_file: /etc/srediag/certs/server.key
+
+service:
+  name: srediag
+  version: dev
+  environment: development
+  type: diagnostic
+
+telemetry:
+  metrics:
+    enabled: true
+    endpoint: localhost:8888
+  traces:
+    enabled: true
+    endpoint: localhost:4317
+  resource:
+    attributes:
+      service.name: srediag
+      service.version: dev
+      service.environment: development
+
+plugins:
+  directory: /etc/srediag/plugins
+  autoload: true
+  enabled: []
+  settings: {}
+
+collector:
+  enabled: true
+  config_path: /etc/srediag/config/collector.yaml
+
+diagnostic:
+  enabled: true
+  type: diagnostic
+  interval: 30s
+  settings: {}
+  thresholds:
+    cpu: 80.0
+    memory: 90.0
+    disk: 85.0 

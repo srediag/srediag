@@ -3,11 +3,14 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 // DefaultConfigManager is the default implementation of ConfigManager
@@ -174,4 +177,33 @@ func isNotExist(err error) bool {
 		return false
 	}
 	return err.Error() == "no such file or directory" || err.Error() == "file does not exist"
+}
+
+// SaveConfig implements ConfigManager
+func (cm *DefaultConfigManager) SaveConfig(path string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.config == nil {
+		return fmt.Errorf("no configuration to save")
+	}
+
+	// Create the directory if it doesn't exist
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Marshal the configuration to YAML
+	data, err := yaml.Marshal(cm.config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration: %w", err)
+	}
+
+	// Write the configuration to file
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write configuration: %w", err)
+	}
+
+	return nil
 }

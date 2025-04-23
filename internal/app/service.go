@@ -1,3 +1,4 @@
+// Package app provides the main application functionality
 package app
 
 import (
@@ -14,7 +15,7 @@ import (
 // Service represents the main SREDIAG service
 type Service struct {
 	logger     *zap.Logger
-	config     *config.SREDiagConfig
+	config     *config.Root
 	pluginMgr  core.PluginManager
 	telemetry  core.TelemetryBridge
 	mu         sync.RWMutex
@@ -23,7 +24,7 @@ type Service struct {
 }
 
 // NewService creates a new instance of the SREDIAG service
-func NewService(cfg *config.SREDiagConfig, logger *zap.Logger) (*Service, error) {
+func NewService(cfg *config.Root, logger *zap.Logger) (*Service, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}

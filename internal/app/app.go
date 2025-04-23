@@ -1,3 +1,4 @@
+// Package app provides the main application functionality
 package app
 
 import (
@@ -14,13 +15,13 @@ import (
 
 // App represents the main application
 type App struct {
-	cfg     *config.SREDiagConfig
+	cfg     *config.Root
 	logger  *zap.Logger
 	srediag *SREDiag
 }
 
 // New creates a new instance of App
-func New(cfg *config.SREDiagConfig, logger *zap.Logger) (*App, error) {
+func New(cfg *config.Root, logger *zap.Logger) (*App, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}

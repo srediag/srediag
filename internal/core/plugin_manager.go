@@ -1,3 +1,4 @@
+// Package core provides core interfaces and components for SREDIAG
 package core
 
 import (
@@ -10,147 +11,153 @@ import (
 	"go.uber.org/zap"
 )
 
-// DefaultPluginManager is the default implementation of PluginManager
-type DefaultPluginManager struct {
+// defaultPluginManager provides a default implementation of PluginManager
+type defaultPluginManager struct {
 	logger  *zap.Logger
 	plugins map[string]Plugin
 	mu      sync.RWMutex
 	healthy bool
-	running bool
 }
 
-// NewPluginManager creates a new instance of DefaultPluginManager
-func NewPluginManager(logger *zap.Logger) *DefaultPluginManager {
-	return &DefaultPluginManager{
+// NewPluginManager creates a new plugin manager instance
+func NewPluginManager(logger *zap.Logger) PluginManager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	return &defaultPluginManager{
 		logger:  logger,
 		plugins: make(map[string]Plugin),
 		healthy: true,
 	}
 }
 
-// Start initializes the plugin manager
-func (pm *DefaultPluginManager) Start(ctx context.Context) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+// Start implements Component
+func (m *defaultPluginManager) Start(ctx context.Context) error {
+	m.logger.Info("starting plugin manager")
 
-	if pm.running {
-		return fmt.Errorf("plugin manager is already running")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Start all loaded plugins
+	for name, p := range m.plugins {
+		if err := p.Start(ctx); err != nil {
+			m.logger.Error("failed to start plugin",
+				zap.String("name", name),
+				zap.Error(err))
+			m.healthy = false
+			return fmt.Errorf("failed to start plugin %s: %w", name, err)
+		}
 	}
 
-	pm.logger.Info("starting plugin manager")
-	pm.running = true
 	return nil
 }
 
-// Stop stops the plugin manager and all plugins
-func (pm *DefaultPluginManager) Stop(ctx context.Context) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+// Stop implements Component
+func (m *defaultPluginManager) Stop(ctx context.Context) error {
+	m.logger.Info("stopping plugin manager")
 
-	if !pm.running {
-		return fmt.Errorf("plugin manager is not running")
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	pm.logger.Info("stopping plugin manager")
-
-	// Stop all plugins
-	for name, p := range pm.plugins {
+	// Stop all loaded plugins in reverse order
+	for name, p := range m.plugins {
 		if err := p.Stop(ctx); err != nil {
-			pm.logger.Error("failed to stop plugin",
+			m.logger.Error("failed to stop plugin",
 				zap.String("name", name),
 				zap.Error(err))
 		}
 	}
 
-	pm.running = false
 	return nil
 }
 
-// IsHealthy returns the health status
-func (pm *DefaultPluginManager) IsHealthy() bool {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	return pm.healthy
+// IsHealthy implements Component
+func (m *defaultPluginManager) IsHealthy() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.healthy
 }
 
-// LoadPlugin loads a plugin from the given path
-func (pm *DefaultPluginManager) LoadPlugin(path string) (Plugin, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+// LoadPlugin implements PluginManager
+func (m *defaultPluginManager) LoadPlugin(path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if !pm.running {
-		return nil, fmt.Errorf("plugin manager is not running")
-	}
-
-	// Check if plugin is already loaded
-	name := filepath.Base(path)
-	if p, exists := pm.plugins[name]; exists {
-		return p, nil
-	}
-
-	// Load plugin
-	plug, err := plugin.Open(path)
+	// Resolve absolute path
+	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open plugin %s: %w", path, err)
+		return fmt.Errorf("failed to resolve plugin path: %w", err)
 	}
 
-	// Look up Plugin symbol
-	sym, err := plug.Lookup("Plugin")
+	// Open plugin
+	plug, err := plugin.Open(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("plugin %s does not export 'Plugin' symbol: %w", path, err)
+		return fmt.Errorf("failed to open plugin: %w", err)
 	}
 
-	// Assert that the symbol is a Plugin
-	p, ok := sym.(Plugin)
+	// Look up plugin symbol
+	sym, err := plug.Lookup("NewPlugin")
+	if err != nil {
+		return fmt.Errorf("plugin does not export 'NewPlugin' symbol: %w", err)
+	}
+
+	// Type assert plugin constructor
+	newPlugin, ok := sym.(func() Plugin)
 	if !ok {
-		return nil, fmt.Errorf("plugin %s does not implement Plugin interface", path)
+		return fmt.Errorf("invalid plugin constructor type")
 	}
 
-	// Start the plugin
-	if err := p.Start(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to start plugin %s: %w", path, err)
+	// Create plugin instance
+	p := newPlugin()
+	if p == nil {
+		return fmt.Errorf("plugin constructor returned nil")
 	}
 
-	pm.plugins[name] = p
-	pm.logger.Info("loaded plugin",
+	// Store plugin
+	name := p.GetName()
+	if _, exists := m.plugins[name]; exists {
+		return fmt.Errorf("plugin %s already loaded", name)
+	}
+
+	m.plugins[name] = p
+	m.logger.Info("loaded plugin",
 		zap.String("name", name),
-		zap.String("type", string(p.Type())),
-		zap.String("version", p.Version()))
+		zap.String("version", p.GetVersion()),
+		zap.String("type", p.GetType()))
 
-	return p, nil
+	return nil
 }
 
-// UnloadPlugin unloads a plugin by name
-func (pm *DefaultPluginManager) UnloadPlugin(name string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+// UnloadPlugin implements PluginManager
+func (m *defaultPluginManager) UnloadPlugin(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if !pm.running {
-		return fmt.Errorf("plugin manager is not running")
-	}
-
-	p, exists := pm.plugins[name]
+	p, exists := m.plugins[name]
 	if !exists {
 		return fmt.Errorf("plugin %s not found", name)
 	}
 
-	// Stop the plugin
+	// Stop plugin before unloading
 	if err := p.Stop(context.Background()); err != nil {
-		return fmt.Errorf("failed to stop plugin %s: %w", name, err)
+		m.logger.Error("failed to stop plugin during unload",
+			zap.String("name", name),
+			zap.Error(err))
 	}
 
-	delete(pm.plugins, name)
-	pm.logger.Info("unloaded plugin", zap.String("name", name))
+	delete(m.plugins, name)
+	m.logger.Info("unloaded plugin", zap.String("name", name))
 
 	return nil
 }
 
-// GetPlugin returns a plugin by name
-func (pm *DefaultPluginManager) GetPlugin(name string) (Plugin, error) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+// GetPlugin implements PluginManager
+func (m *defaultPluginManager) GetPlugin(name string) (Plugin, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	p, exists := pm.plugins[name]
+	p, exists := m.plugins[name]
 	if !exists {
 		return nil, fmt.Errorf("plugin %s not found", name)
 	}
@@ -158,13 +165,13 @@ func (pm *DefaultPluginManager) GetPlugin(name string) (Plugin, error) {
 	return p, nil
 }
 
-// ListPlugins returns all loaded plugins
-func (pm *DefaultPluginManager) ListPlugins() []Plugin {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+// ListPlugins implements PluginManager
+func (m *defaultPluginManager) ListPlugins() []Plugin {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	plugins := make([]Plugin, 0, len(pm.plugins))
-	for _, p := range pm.plugins {
+	plugins := make([]Plugin, 0, len(m.plugins))
+	for _, p := range m.plugins {
 		plugins = append(plugins, p)
 	}
 
