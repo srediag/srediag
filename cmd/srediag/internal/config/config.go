@@ -5,23 +5,14 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
+
+	"github.com/srediag/srediag/internal/types"
 )
 
 const (
 	// DefaultConfigPath is the default path to the configuration file
 	DefaultConfigPath = "/etc/srediag/config/srediag.yaml"
 )
-
-// Config represents the root configuration structure
-type Config struct {
-	Core struct {
-		LogLevel  string `mapstructure:"log_level"`
-		LogFormat string `mapstructure:"log_format"`
-	} `mapstructure:"core"`
-	Service struct {
-		Version string `mapstructure:"version"`
-	} `mapstructure:"service"`
-}
 
 // InitializeConfig initializes the configuration system
 func InitializeConfig(configPath string) {
@@ -64,14 +55,14 @@ func InitializeConfig(configPath string) {
 }
 
 // Load loads the configuration from file
-func Load(configPath string) (*Config, error) {
+func Load(configPath string) (*types.Config, error) {
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 	}
 
-	var cfg Config
+	var cfg types.Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unable to decode config: %w", err)
 	}

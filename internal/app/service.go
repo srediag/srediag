@@ -9,22 +9,23 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/srediag/srediag/internal/config"
-	"github.com/srediag/srediag/internal/core"
+	"github.com/srediag/srediag/internal/diagnostic"
+	"github.com/srediag/srediag/internal/types"
 )
 
 // Service represents the main SREDIAG service
 type Service struct {
 	logger     *zap.Logger
-	config     *config.Root
-	pluginMgr  core.PluginManager
-	telemetry  core.TelemetryBridge
+	config     *config.ConfigRoot
+	pluginMgr  types.IPluginManager
+	telemetry  types.ITelemetryBridge
 	mu         sync.RWMutex
 	isRunning  bool
 	cancelFunc context.CancelFunc
 }
 
 // NewService creates a new instance of the SREDIAG service
-func NewService(cfg *config.Root, logger *zap.Logger) (*Service, error) {
+func NewService(cfg *config.ConfigRoot, logger *zap.Logger) (*Service, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration cannot be nil")
 	}
@@ -51,18 +52,18 @@ func (s *Service) Start(ctx context.Context) error {
 	s.cancelFunc = cancel
 
 	// Initialize plugin manager
-	pluginMgr := core.NewPluginManager(s.logger.Named("plugin-manager"))
+	pluginMgr := diagnostic.NewPluginManager(s.logger.Named("plugin-manager"))
 	s.pluginMgr = pluginMgr
 
 	// Initialize telemetry bridge
-	telemetry := core.NewTelemetryBridge(
+	telemetry := diagnostic.NewTelemetryBridge(
 		s.logger.Named("telemetry-bridge"),
 		nil, // Resource will be created in SREDiag
 	)
 	s.telemetry = telemetry
 
 	// Start components
-	if err := s.pluginMgr.Start(ctx); err != nil {
+	if err := s.pluginMgr.StartAll(ctx); err != nil {
 		return fmt.Errorf("failed to start plugin manager: %w", err)
 	}
 
@@ -94,7 +95,7 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.logger.Error("error stopping telemetry bridge", zap.Error(err))
 	}
 
-	if err := s.pluginMgr.Stop(ctx); err != nil {
+	if err := s.pluginMgr.StopAll(ctx); err != nil {
 		s.logger.Error("error stopping plugin manager", zap.Error(err))
 	}
 

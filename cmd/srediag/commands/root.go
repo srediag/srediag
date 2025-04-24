@@ -10,6 +10,7 @@ import (
 
 	"github.com/srediag/srediag/cmd/srediag/internal/config"
 	"github.com/srediag/srediag/cmd/srediag/internal/version"
+	"github.com/srediag/srediag/internal/types"
 )
 
 // Exit codes
@@ -104,7 +105,7 @@ func run(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initLogger(cfg *config.Config) (*zap.Logger, error) {
+func initLogger(cfg *types.Config) (*zap.Logger, error) {
 	var config zap.Config
 
 	if cfg.Core.LogFormat == "console" {
@@ -114,11 +115,11 @@ func initLogger(cfg *config.Config) (*zap.Logger, error) {
 		config = zap.NewProductionConfig()
 	}
 
-	level := cfg.Core.LogLevel
+	level := string(cfg.Core.LogLevel)
 	if verbose {
-		level = "debug"
+		level = string(types.ConfigLogLevelDebug)
 	} else if quiet {
-		level = "error"
+		level = string(types.ConfigLogLevelError)
 	}
 
 	parsedLevel, err := zapcore.ParseLevel(level)

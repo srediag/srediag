@@ -2,19 +2,19 @@ package diagnostic
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	"github.com/srediag/srediag/internal/base"
 )
 
-// TypeStr is the unique identifier for the Diagnostic exporter.
 var typeStr = component.MustNewType("diagnostic")
 
-// CreateFactory creates a factory for the Diagnostic exporter.
+// CreateFactory creates a factory for the diagnostic exporter
 func CreateFactory() exporter.Factory {
 	return exporter.NewFactory(
 		typeStr,
@@ -23,29 +23,10 @@ func CreateFactory() exporter.Factory {
 	)
 }
 
-func createDefaultConfig() component.Config {
-	return &Config{
-		OutputDir:     "diagnostic_reports",
-		FlushInterval: 5 * time.Minute,
-		PrettyPrint:   true,
-	}
-}
-
 type diagnosticExporter struct {
-	cfg    *Config
+	*base.BaseComponent
 	logger *zap.Logger
-}
-
-func createMetricsExporter(
-	_ context.Context,
-	params exporter.Settings,
-	cfg component.Config,
-) (exporter.Metrics, error) {
-	eCfg := cfg.(*Config)
-	return &diagnosticExporter{
-		cfg:    eCfg,
-		logger: params.Logger,
-	}, nil
+	cfg    *Config
 }
 
 // Start implements component.Component

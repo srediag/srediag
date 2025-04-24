@@ -22,9 +22,10 @@ const (
 
 // Config represents the plugin configuration
 type Config struct {
-	CollectInterval time.Duration `mapstructure:"collect_interval"`
-	CPUThreshold    float64       `mapstructure:"cpu_threshold"`
-	MemThreshold    float64       `mapstructure:"mem_threshold"`
+	plugins.PluginConfig `mapstructure:",squash"`
+	CollectInterval      time.Duration `mapstructure:"collect_interval"`
+	CPUThreshold         float64       `mapstructure:"cpu_threshold"`
+	MemThreshold         float64       `mapstructure:"mem_threshold"`
 }
 
 // Plugin implements the system diagnostic plugin
@@ -41,9 +42,26 @@ func NewFactory() plugins.Factory {
 
 type factory struct{}
 
-func (f *factory) Type() string { return pluginType }
+// Type implements component.Factory
+func (f *factory) Type() component.Type {
+	return component.MustNewType("system")
+}
 
-func (f *factory) CreatePlugin(cfg interface{}) (plugins.Plugin, error) {
+// CreateDefaultConfig implements component.Factory
+func (f *factory) CreateDefaultConfig() component.Config {
+	return &Config{
+		PluginConfig: plugins.PluginConfig{
+			Enabled:  true,
+			Settings: make(map[string]string),
+		},
+		CollectInterval: 30 * time.Second,
+		CPUThreshold:    80.0,
+		MemThreshold:    80.0,
+	}
+}
+
+// CreatePlugin implements plugins.Factory
+func (f *factory) CreatePlugin(cfg interface{}) (plugins.BasePlugin, error) {
 	config, ok := cfg.(*Config)
 	if !ok {
 		return nil, fmt.Errorf("invalid configuration type")
@@ -54,28 +72,30 @@ func (f *factory) CreatePlugin(cfg interface{}) (plugins.Plugin, error) {
 	}, nil
 }
 
-// Type returns the plugin type
-func (p *Plugin) Type() string { return pluginType }
+// Type implements plugins.BasePlugin
+func (p *Plugin) Type() component.Type {
+	return component.MustNewType("system")
+}
 
-// Name returns the plugin name
+// Name implements plugins.BasePlugin
 func (p *Plugin) Name() string { return pluginName }
 
-// Version returns the plugin version
+// Version implements plugins.BasePlugin
 func (p *Plugin) Version() string { return pluginVersion }
 
-// Start initializes the plugin
+// Start implements component.Component
 func (p *Plugin) Start(ctx context.Context, host component.Host) error {
 	p.host = host
 	p.logger = zap.L().Named("system-plugin")
 	return nil
 }
 
-// Shutdown stops the plugin
+// Shutdown implements component.Component
 func (p *Plugin) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// Diagnose performs system diagnostics
+// Diagnose implements plugins.DiagnosticPlugin
 func (p *Plugin) Diagnose(ctx context.Context, target string, options map[string]interface{}) (plugins.DiagnosticResult, error) {
 	result := plugins.DiagnosticResult{
 		Status:   "success",

@@ -7,29 +7,29 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 )
 
-// OtelCollectorConfig represents the OpenTelemetry Collector configuration
-type OtelCollectorConfig struct {
+// ConfigOtelCollector represents the OpenTelemetry Collector configuration
+type ConfigOtelCollector struct {
 	Receivers  map[string]interface{} `mapstructure:"receivers"`
 	Processors map[string]interface{} `mapstructure:"processors"`
 	Exporters  map[string]interface{} `mapstructure:"exporters"`
-	Service    ServicePipelines       `mapstructure:"service"`
+	Service    ConfigOtelPipelines    `mapstructure:"service"`
 }
 
-// ServicePipelines define the service pipelines of the collector
-type ServicePipelines struct {
-	Pipelines map[string]Pipeline `mapstructure:"pipelines"`
+// ConfigOtelPipelines define the service pipelines of the collector
+type ConfigOtelPipelines struct {
+	Pipelines map[string]ConfigOtelPipeline `mapstructure:"pipelines"`
 }
 
-// Pipeline defines the structure of an individual pipeline
-type Pipeline struct {
+// ConfigOtelPipeline defines the structure of an individual pipeline
+type ConfigOtelPipeline struct {
 	Receivers  []string `mapstructure:"receivers"`
 	Processors []string `mapstructure:"processors"`
 	Exporters  []string `mapstructure:"exporters"`
 }
 
-// NewDefaultConfig returns a default collector configuration
-func NewDefaultConfig() *OtelCollectorConfig {
-	return &OtelCollectorConfig{
+// NewDefaultOtelConfig returns a default collector configuration
+func NewDefaultOtelConfig() *ConfigOtelCollector {
+	return &ConfigOtelCollector{
 		Receivers: map[string]interface{}{
 			"otlp": map[string]interface{}{
 				"protocols": map[string]interface{}{
@@ -46,8 +46,8 @@ func NewDefaultConfig() *OtelCollectorConfig {
 				"verbosity": "detailed",
 			},
 		},
-		Service: ServicePipelines{
-			Pipelines: map[string]Pipeline{
+		Service: ConfigOtelPipelines{
+			Pipelines: map[string]ConfigOtelPipeline{
 				"traces": {
 					Receivers:  []string{"otlp"},
 					Processors: []string{"batch"},
@@ -64,7 +64,7 @@ func NewDefaultConfig() *OtelCollectorConfig {
 }
 
 // ValidateConfig validates the collector configuration
-func (c *OtelCollectorConfig) ValidateConfig() error {
+func (c *ConfigOtelCollector) ValidateConfig() error {
 	if len(c.Service.Pipelines) == 0 {
 		return fmt.Errorf("at least one pipeline must be configured")
 	}
@@ -100,8 +100,8 @@ func (c *OtelCollectorConfig) ValidateConfig() error {
 	return nil
 }
 
-// LoadCollectorConfig loads the collector configuration from a YAML file
-func LoadCollectorConfig(configPath string) (*OtelCollectorConfig, error) {
+// LoadOtelConfig loads the collector configuration from a YAML file
+func LoadOtelConfig(configPath string) (*ConfigOtelCollector, error) {
 	v := viper.New()
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
@@ -110,7 +110,7 @@ func LoadCollectorConfig(configPath string) (*OtelCollectorConfig, error) {
 		return nil, fmt.Errorf("error reading configuration file: %w", err)
 	}
 
-	var cfg OtelCollectorConfig
+	var cfg ConfigOtelCollector
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("error decoding configuration: %w", err)
 	}
@@ -123,7 +123,7 @@ func LoadCollectorConfig(configPath string) (*OtelCollectorConfig, error) {
 }
 
 // ToConfMap converts the configuration to a confmap.Conf
-func (c *OtelCollectorConfig) ToConfMap() (*confmap.Conf, error) {
+func (c *ConfigOtelCollector) ToConfMap() (*confmap.Conf, error) {
 	data := map[string]interface{}{
 		"receivers":  c.Receivers,
 		"processors": c.Processors,

@@ -6,6 +6,11 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/extension"
+	"go.opentelemetry.io/collector/otelcol"
+	"go.opentelemetry.io/collector/processor"
+	"go.opentelemetry.io/collector/receiver"
 	"go.uber.org/zap"
 )
 
@@ -13,16 +18,18 @@ import (
 type Manager struct {
 	logger    *zap.Logger
 	mu        sync.RWMutex
-	plugins   map[string]Plugin
-	factories map[string]Factory
+	plugins   map[component.ID]BasePlugin
+	factories map[component.Type]Factory
+	host      component.Host
 }
 
 // NewManager creates a new plugin manager
-func NewManager(logger *zap.Logger) *Manager {
+func NewManager(logger *zap.Logger, host component.Host) *Manager {
 	return &Manager{
 		logger:    logger,
-		plugins:   make(map[string]Plugin),
-		factories: make(map[string]Factory),
+		plugins:   make(map[component.ID]BasePlugin),
+		factories: make(map[component.Type]Factory),
+		host:      host,
 	}
 }
 
@@ -37,12 +44,12 @@ func (m *Manager) RegisterFactory(factory Factory) error {
 	}
 
 	m.factories[typ] = factory
-	m.logger.Info("registered plugin factory", zap.String("type", typ))
+	m.logger.Info("registered plugin factory", zap.String("type", typ.String()))
 	return nil
 }
 
 // CreatePlugin creates a new plugin instance
-func (m *Manager) CreatePlugin(pluginType string, config interface{}) (Plugin, error) {
+func (m *Manager) CreatePlugin(pluginType component.Type, config interface{}) (BasePlugin, error) {
 	m.mu.RLock()
 	factory, exists := m.factories[pluginType]
 	m.mu.RUnlock()
@@ -59,21 +66,21 @@ func (m *Manager) CreatePlugin(pluginType string, config interface{}) (Plugin, e
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := fmt.Sprintf("%s/%s", plugin.Type(), plugin.Name())
+	id := component.NewID(pluginType)
 	if _, exists := m.plugins[id]; exists {
-		return nil, fmt.Errorf("plugin already exists: %s", id)
+		return nil, fmt.Errorf("plugin already exists: %s", id.String())
 	}
 
 	m.plugins[id] = plugin
 	m.logger.Info("created plugin",
-		zap.String("id", id),
+		zap.String("id", id.String()),
 		zap.String("version", plugin.Version()))
 
 	return plugin, nil
 }
 
 // GetPlugin returns a plugin by its ID
-func (m *Manager) GetPlugin(id string) (Plugin, bool) {
+func (m *Manager) GetPlugin(id component.ID) (BasePlugin, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	plugin, exists := m.plugins[id]
@@ -81,41 +88,27 @@ func (m *Manager) GetPlugin(id string) (Plugin, bool) {
 }
 
 // ListPlugins returns all registered plugins
-func (m *Manager) ListPlugins() []Plugin {
+func (m *Manager) ListPlugins() []BasePlugin {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	plugins := make([]Plugin, 0, len(m.plugins))
+	plugins := make([]BasePlugin, 0, len(m.plugins))
 	for _, p := range m.plugins {
 		plugins = append(plugins, p)
 	}
 	return plugins
 }
 
-// mockHost implements component.Host for testing
-type mockHost struct {
-	logger *zap.Logger
-}
+// GetFactories returns all registered factories
+func (m *Manager) GetFactories() map[component.Type]Factory {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-func newMockHost() component.Host {
-	return &mockHost{
-		logger: zap.L(),
+	factories := make(map[component.Type]Factory, len(m.factories))
+	for k, v := range m.factories {
+		factories[k] = v
 	}
-}
-
-// ReportFatalError implements component.Host
-func (h *mockHost) ReportFatalError(err error) {
-	h.logger.Fatal("fatal error reported", zap.Error(err))
-}
-
-// GetFactory implements component.Host
-func (h *mockHost) GetFactory(component.Type) component.Factory {
-	return nil
-}
-
-// GetExtensions implements component.Host
-func (h *mockHost) GetExtensions() map[component.ID]component.Component {
-	return nil
+	return factories
 }
 
 // Start starts all plugins
@@ -123,15 +116,14 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	host := newMockHost()
 	for id, plugin := range m.plugins {
-		if err := plugin.Start(ctx, host); err != nil {
+		if err := plugin.Start(ctx, m.host); err != nil {
 			m.logger.Error("failed to start plugin",
-				zap.String("id", id),
+				zap.String("id", id.String()),
 				zap.Error(err))
-			return fmt.Errorf("failed to start plugin %s: %w", id, err)
+			return fmt.Errorf("failed to start plugin %s: %w", id.String(), err)
 		}
-		m.logger.Info("started plugin", zap.String("id", id))
+		m.logger.Info("started plugin", zap.String("id", id.String()))
 	}
 	return nil
 }
@@ -145,12 +137,40 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	for id, plugin := range m.plugins {
 		if err := plugin.Shutdown(ctx); err != nil {
 			m.logger.Error("failed to shutdown plugin",
-				zap.String("id", id),
+				zap.String("id", id.String()),
 				zap.Error(err))
 			lastErr = err
 		} else {
-			m.logger.Info("shutdown plugin", zap.String("id", id))
+			m.logger.Info("shutdown plugin", zap.String("id", id.String()))
 		}
 	}
 	return lastErr
+}
+
+// CreateCollectorFactories creates OpenTelemetry collector factories from registered plugins
+func (m *Manager) CreateCollectorFactories() (otelcol.Factories, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	factories := otelcol.Factories{
+		Receivers:  make(map[component.Type]receiver.Factory),
+		Processors: make(map[component.Type]processor.Factory),
+		Exporters:  make(map[component.Type]exporter.Factory),
+		Extensions: make(map[component.Type]extension.Factory),
+	}
+
+	for typ, factory := range m.factories {
+		switch f := factory.(type) {
+		case receiver.Factory:
+			factories.Receivers[typ] = f
+		case processor.Factory:
+			factories.Processors[typ] = f
+		case exporter.Factory:
+			factories.Exporters[typ] = f
+		case extension.Factory:
+			factories.Extensions[typ] = f
+		}
+	}
+
+	return factories, nil
 }

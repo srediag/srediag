@@ -7,16 +7,15 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/processor"
 	"go.uber.org/zap"
-
-	"github.com/srediag/srediag/pkg/plugins"
 )
 
 const (
-	pluginType    = "processor/diagnostic"
-	pluginName    = "diagnostic"
-	pluginVersion = "v0.1.0"
+	typeStr = "diagnostic"
 )
+
+var processorType = component.MustNewType(typeStr)
 
 // Config represents the processor configuration
 type Config struct {
@@ -34,34 +33,39 @@ type Processor struct {
 }
 
 // NewFactory creates a new diagnostic processor factory
-func NewFactory() plugins.Factory {
-	return &factory{}
+func NewFactory() processor.Factory {
+	return processor.NewFactory(
+		processorType,
+		createDefaultConfig,
+		processor.WithMetrics(createMetricsProcessor, component.StabilityLevelBeta),
+	)
 }
 
-type factory struct{}
+func createDefaultConfig() component.Config {
+	return &Config{
+		CPUThreshold: 80.0,
+		MemThreshold: 80.0,
+		AlertOnWarn:  true,
+	}
+}
 
-func (f *factory) Type() string { return pluginType }
-
-func (f *factory) CreatePlugin(cfg interface{}) (plugins.Plugin, error) {
+func createMetricsProcessor(
+	_ context.Context,
+	set processor.Settings,
+	cfg component.Config,
+	nextConsumer consumer.Metrics,
+) (processor.Metrics, error) {
 	config, ok := cfg.(*Config)
 	if !ok {
 		return nil, fmt.Errorf("invalid configuration type")
 	}
 
 	return &Processor{
-		config: config,
-		logger: zap.L().Named("diagnostic-processor"),
+		config:       config,
+		nextConsumer: nextConsumer,
+		logger:       set.Logger,
 	}, nil
 }
-
-// Type returns the plugin type
-func (p *Processor) Type() string { return pluginType }
-
-// Name returns the plugin name
-func (p *Processor) Name() string { return pluginName }
-
-// Version returns the plugin version
-func (p *Processor) Version() string { return pluginVersion }
 
 // Start initializes the processor
 func (p *Processor) Start(ctx context.Context, host component.Host) error {
@@ -136,7 +140,7 @@ func (p *Processor) analyzeMemoryMetric(metric pmetric.Metric) {
 	}
 }
 
-// SetNextConsumer sets the next consumer in the pipeline
-func (p *Processor) SetNextConsumer(nextConsumer consumer.Metrics) {
-	p.nextConsumer = nextConsumer
+// Capabilities returns the processor's capabilities
+func (p *Processor) Capabilities() consumer.Capabilities {
+	return consumer.Capabilities{MutatesData: false}
 }
