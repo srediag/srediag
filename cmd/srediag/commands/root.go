@@ -1,8 +1,8 @@
 package commands
 
 import (
+	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -32,6 +32,12 @@ var (
 	outputFile   string
 	showVersion  bool
 
+	// Configuration manager
+	configManager *config.Manager
+
+	// Settings
+	settings Settings
+
 	// Root command
 	rootCmd = &cobra.Command{
 		Use:   "srediag",
@@ -43,7 +49,8 @@ It helps identify and diagnose issues in your infrastructure.`,
 )
 
 // Execute executes the root command
-func Execute() error {
+func Execute(s Settings) error {
+	settings = s
 	return rootCmd.Execute()
 }
 
@@ -68,7 +75,17 @@ func init() {
 }
 
 func initConfig() {
+	// Initialize Viper configuration
 	config.InitializeConfig(configPath)
+
+	// Create configuration manager with appropriate logger
+	if settings.Logger != nil {
+		configManager = config.NewManager(settings.Logger)
+	} else {
+		// Create a default logger if none is provided in settings
+		logger, _ := zap.NewProduction()
+		configManager = config.NewManager(logger)
+	}
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -80,22 +97,25 @@ func run(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Load configuration
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	// Initialize configuration manager
+	if err := configManager.Initialize(cmd.Context()); err != nil {
+		return fmt.Errorf("failed to initialize configuration: %w", err)
 	}
+	defer func() {
+		if err := configManager.Shutdown(context.Background()); err != nil {
+			settings.Logger.Error("Failed to shutdown configuration manager",
+				zap.Error(err))
+		}
+	}()
 
-	// Initialize logger
+	// Get configuration
+	cfg := configManager.Get()
+
+	// Initialize logger with configuration
 	logger, err := initLogger(cfg)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := logger.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
-		}
-	}()
 
 	logger.Info("starting SREDIAG",
 		zap.String("version", version.Version),

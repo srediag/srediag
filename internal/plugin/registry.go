@@ -40,7 +40,7 @@ func (r *Registry) RegisterPlugin(plugin types.IPlugin) error {
 		return fmt.Errorf("invalid plugin: %w", err)
 	}
 
-	id := plugin.GetID()
+	id := plugin.GetName()
 	if _, exists := r.plugins[id]; exists {
 		return fmt.Errorf("plugin %s already registered", id)
 	}

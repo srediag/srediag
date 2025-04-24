@@ -1,4 +1,4 @@
-// Package plugin provides plugin types and utilities for SREDIAG
+// Package plugin provides plugin management functionality
 package plugin
 
 import (
@@ -14,12 +14,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
+	"github.com/srediag/srediag/internal/config"
 	"github.com/srediag/srediag/internal/discovery"
 	"github.com/srediag/srediag/internal/factory"
 	"github.com/srediag/srediag/internal/types"
 )
 
-// Manager handles plugin lifecycle and management
+// Manager manages plugins
 type Manager struct {
 	mu             sync.RWMutex
 	logger         *zap.Logger
@@ -33,11 +34,12 @@ type Manager struct {
 	buildInfo      component.BuildInfo
 	tracerProvider trace.TracerProvider
 	meterProvider  metric.MeterProvider
+	configManager  *config.Manager
 	running        bool
 }
 
 // NewManager creates a new plugin manager
-func NewManager(logger *zap.Logger, registry *Registry, discovery *discovery.Manager, host component.Host, buildInfo component.BuildInfo, tracerProvider trace.TracerProvider, meterProvider metric.MeterProvider) *Manager {
+func NewManager(logger *zap.Logger, registry *Registry, discovery *discovery.Manager, host component.Host, buildInfo component.BuildInfo, tracerProvider trace.TracerProvider, meterProvider metric.MeterProvider, configManager *config.Manager) *Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -54,6 +56,7 @@ func NewManager(logger *zap.Logger, registry *Registry, discovery *discovery.Man
 		buildInfo:      buildInfo,
 		tracerProvider: tracerProvider,
 		meterProvider:  meterProvider,
+		configManager:  configManager,
 	}
 }
 
@@ -133,8 +136,16 @@ func (m *Manager) RegisterPlugin(plugin types.IPlugin) error {
 		return fmt.Errorf("invalid plugin: %w", err)
 	}
 
-	id := plugin.GetID()
+	id := plugin.GetName()
 	m.plugins[id] = plugin
+
+	// Load plugin configuration
+	if err := m.configManager.LoadPluginConfig(context.Background(), plugin); err != nil {
+		m.logger.Warn("Failed to load plugin configuration",
+			zap.String("plugin", id),
+			zap.Error(err))
+	}
+
 	return m.registry.RegisterPlugin(plugin)
 }
 
@@ -142,6 +153,14 @@ func (m *Manager) RegisterPlugin(plugin types.IPlugin) error {
 func (m *Manager) UnregisterPlugin(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	ctx := context.Background()
+
+	// Remove plugin configuration
+	if err := m.configManager.DeletePluginConfig(ctx, id); err != nil {
+		m.logger.Warn("Failed to delete plugin configuration",
+			zap.String("plugin", id),
+			zap.Error(err))
+	}
 
 	delete(m.plugins, id)
 	return m.registry.UnregisterPlugin(id)
@@ -193,50 +212,48 @@ func (m *Manager) ListPluginsByCapability(capability types.PluginCapability) []t
 
 	var plugins []types.IPlugin
 	for _, plugin := range m.plugins {
-		if plugin.GetCapabilities().HasCapability(capability) {
-			plugins = append(plugins, plugin)
+		if metadata, ok := plugin.(interface{ GetMetadata() types.PluginMetadata }); ok {
+			if metadata.GetMetadata().Capabilities.HasCapability(capability) {
+				plugins = append(plugins, plugin)
+			}
 		}
 	}
 	return plugins
 }
 
-// Start starts all components and plugins
+// Start starts the plugin manager
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.running {
-		return fmt.Errorf("plugin manager is already running")
+		return nil
 	}
 
-	// Start OpenTelemetry components
-	for id, comp := range m.components {
-		if err := comp.Start(ctx, m.host); err != nil {
-			m.logger.Error("Failed to start component",
-				zap.String("id", id.String()),
-				zap.Error(err))
-			m.errors[id] = append(m.errors[id], err)
-		}
+	// Initialize configuration manager
+	if err := m.configManager.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize configuration manager: %w", err)
 	}
 
-	// Start SREDIAG plugins
-	for id, plugin := range m.plugins {
+	// Start discovery
+	if m.discovery != nil {
+		go m.watchDiscovery(ctx)
+	}
+
+	for name, plugin := range m.plugins {
 		if err := plugin.Start(ctx); err != nil {
 			m.logger.Error("Failed to start plugin",
-				zap.String("id", id),
+				zap.String("name", name),
 				zap.Error(err))
+			return fmt.Errorf("failed to start plugin %s: %w", name, err)
 		}
 	}
 
-	// Start plugin discovery watcher in a goroutine
-	go m.watchDiscovery(ctx)
-
 	m.running = true
-	m.logger.Info("Started plugin manager")
 	return nil
 }
 
-// Shutdown stops all components and plugins
+// Shutdown shuts down the plugin manager
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -245,27 +262,31 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop OpenTelemetry components
-	for id, comp := range m.components {
-		if err := comp.Shutdown(ctx); err != nil {
-			m.logger.Error("Failed to shutdown component",
-				zap.String("id", id.String()),
-				zap.Error(err))
-			m.errors[id] = append(m.errors[id], err)
-		}
+	// Shutdown configuration manager
+	if err := m.configManager.Shutdown(ctx); err != nil {
+		m.logger.Error("Failed to shutdown configuration manager",
+			zap.Error(err))
 	}
 
-	// Stop SREDIAG plugins
+	// Shutdown all plugins
 	for id, plugin := range m.plugins {
 		if err := plugin.Stop(ctx); err != nil {
 			m.logger.Error("Failed to stop plugin",
-				zap.String("id", id),
+				zap.String("plugin", id),
+				zap.Error(err))
+		}
+	}
+
+	// Shutdown all components
+	for id, comp := range m.components {
+		if err := comp.Shutdown(ctx); err != nil {
+			m.logger.Error("Failed to shutdown component",
+				zap.String("component", id.String()),
 				zap.Error(err))
 		}
 	}
 
 	m.running = false
-	m.logger.Info("Stopped plugin manager")
 	return nil
 }
 
@@ -361,4 +382,73 @@ func (m *Manager) ListComponents() []component.Component {
 		components = append(components, comp)
 	}
 	return components
+}
+
+// LoadPlugin loads a plugin
+func (m *Manager) LoadPlugin(ctx context.Context, plugin types.IPlugin) error {
+	if plugin == nil {
+		return fmt.Errorf("plugin cannot be nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	name := plugin.GetName()
+	if _, exists := m.plugins[name]; exists {
+		return fmt.Errorf("plugin %s already exists", name)
+	}
+
+	if err := m.configManager.LoadPluginConfig(ctx, plugin); err != nil {
+		return fmt.Errorf("failed to load plugin config: %w", err)
+	}
+
+	m.plugins[name] = plugin
+	m.logger.Info("Loaded plugin",
+		zap.String("name", name),
+		zap.String("version", plugin.GetVersion()),
+		zap.String("type", string(plugin.GetType())),
+		zap.String("category", string(plugin.GetCategory())))
+
+	return nil
+}
+
+// UnloadPlugin unloads a plugin
+func (m *Manager) UnloadPlugin(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	plugin, exists := m.plugins[name]
+	if !exists {
+		return fmt.Errorf("plugin %s not found", name)
+	}
+
+	if err := plugin.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop plugin: %w", err)
+	}
+
+	delete(m.plugins, name)
+	m.logger.Info("Unloaded plugin", zap.String("name", name))
+
+	return nil
+}
+
+// Stop stops all plugins
+func (m *Manager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var errs []error
+	for name, plugin := range m.plugins {
+		if err := plugin.Stop(ctx); err != nil {
+			m.logger.Error("Failed to stop plugin",
+				zap.String("name", name),
+				zap.Error(err))
+			errs = append(errs, fmt.Errorf("failed to stop plugin %s: %w", name, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to stop plugins: %v", errs)
+	}
+	return nil
 }

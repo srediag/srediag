@@ -3,9 +3,15 @@ package types
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
+)
 
-	"go.opentelemetry.io/collector/component"
+// Common errors
+var (
+	// ErrPluginNotFound is returned when a plugin cannot be found
+	ErrPluginNotFound = errors.New("plugin not found")
 )
 
 // ErrInvalidPluginConfig represents an error with plugin configuration
@@ -19,6 +25,12 @@ func (e ErrInvalidPluginConfig) Error() string {
 type PluginCategory string
 
 const (
+	// PluginCategoryDiagnostic represents a diagnostic plugin
+	PluginCategoryDiagnostic PluginCategory = "diagnostic"
+	// PluginCategoryTelemetry represents a telemetry plugin
+	PluginCategoryTelemetry PluginCategory = "telemetry"
+	// PluginCategoryCollector represents a collector plugin
+	PluginCategoryCollector PluginCategory = "collector"
 	// PluginCategoryReceiver represents a receiver plugin
 	PluginCategoryReceiver PluginCategory = "receiver"
 	// PluginCategoryProcessor represents a processor plugin
@@ -84,39 +96,52 @@ type PluginMetadata struct {
 
 // PluginConfig represents the configuration for a plugin
 type PluginConfig struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Enabled  bool                   `json:"enabled"`
-	Settings map[string]interface{} `json:"settings"`
+	Name        string         `json:"name"`
+	Version     string         `json:"version"`
+	Type        ComponentType  `json:"type"`
+	Category    PluginCategory `json:"category"`
+	Settings    interface{}    `json:"settings,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Description string         `json:"description,omitempty"`
 }
 
 // Validate validates the plugin configuration
 func (c *PluginConfig) Validate() error {
-	if c.ID == "" {
-		return ErrInvalidPluginConfig("plugin ID is required")
-	}
 	if c.Name == "" {
-		return ErrInvalidPluginConfig("plugin name is required")
+		return fmt.Errorf("plugin name is required")
+	}
+	if c.Version == "" {
+		return fmt.Errorf("plugin version is required")
+	}
+	if c.Type == "" {
+		return fmt.Errorf("plugin type is required")
+	}
+	if c.Category == "" {
+		return fmt.Errorf("plugin category is required")
 	}
 	return nil
 }
 
 // IPlugin defines the interface that all plugins must implement
 type IPlugin interface {
-	// GetID returns the unique identifier of the plugin
-	GetID() string
-	// GetCategory returns the category of the plugin
+	// GetName returns the plugin name
+	GetName() string
+	// GetVersion returns the plugin version
+	GetVersion() string
+	// GetType returns the plugin type
+	GetType() ComponentType
+	// GetCategory returns the plugin category
 	GetCategory() PluginCategory
-	// GetCapabilities returns the capabilities of the plugin
-	GetCapabilities() PluginCapabilities
-	// Validate validates the plugin configuration
-	Validate() error
+	// Configure configures the plugin with settings
+	Configure(settings ComponentSettings) error
 	// Start starts the plugin
 	Start(ctx context.Context) error
 	// Stop stops the plugin
 	Stop(ctx context.Context) error
-	// Component returns the underlying OpenTelemetry component
-	Component() component.Component
+	// GetStatus returns the plugin status
+	GetStatus() ComponentStatus
+	// Validate validates the plugin configuration
+	Validate() error
 }
 
 // IPluginManager defines the interface for plugin management

@@ -17,8 +17,15 @@ type FactoryComponent struct {
 
 // NewFactoryComponent creates a new factory component
 func NewFactoryComponent(settings types.FactorySettings, name string) *FactoryComponent {
+	compSettings := types.ComponentSettings{
+		"name":    name,
+		"logger":  settings.Logger,
+		"type":    types.ComponentTypeService,
+		"version": "1.0.0",
+	}
+
 	return &FactoryComponent{
-		BaseComponent: NewBaseComponent(settings.Logger, types.ComponentTypeService, name),
+		BaseComponent: NewBaseComponent(compSettings),
 		settings:      settings,
 	}
 }
@@ -26,16 +33,14 @@ func NewFactoryComponent(settings types.FactorySettings, name string) *FactoryCo
 // Start implements Component.Start
 func (f *FactoryComponent) Start(ctx context.Context) error {
 	f.logger.Info("Starting factory component",
-		zap.String("type", f.Type().String()),
-		zap.String("name", f.Name()))
+		zap.String("name", f.GetName()))
 	return nil
 }
 
 // Shutdown implements Component.Shutdown
 func (f *FactoryComponent) Shutdown(ctx context.Context) error {
 	f.logger.Info("Shutting down factory component",
-		zap.String("type", f.Type().String()),
-		zap.String("name", f.Name()))
+		zap.String("name", f.GetName()))
 	return nil
 }
 
@@ -43,7 +48,7 @@ func (f *FactoryComponent) Shutdown(ctx context.Context) error {
 func (f *FactoryComponent) WithLogger(logger *zap.Logger) *FactoryComponent {
 	settings := f.settings
 	settings.Logger = logger
-	return NewFactoryComponent(settings, f.Name())
+	return NewFactoryComponent(settings, f.GetName())
 }
 
 // CreateDefaultConfig implements FactoryComponent.CreateDefaultConfig
@@ -55,7 +60,7 @@ func (f *FactoryComponent) CreateDefaultConfig() component.Config {
 func (f *FactoryComponent) WithHost(host component.Host) *FactoryComponent {
 	settings := f.settings
 	settings.Host = host
-	return NewFactoryComponent(settings, f.Name())
+	return NewFactoryComponent(settings, f.GetName())
 }
 
 // Host returns the component's host

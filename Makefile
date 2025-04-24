@@ -11,7 +11,15 @@ export GOFLAGS      := -mod=readonly
 GO_VERSION        := $(shell go version | awk '{print $$3}')
 REQUIRED_GO_MAJOR := 1.24
 
-.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools
+# Directories containing modules to be built as shared objects
+PLUGIN_DIRS := $(shell find plugins -type f -name "main.go" -exec dirname {} \;)
+INTERNAL_DIRS := $(shell find internal -type f -name "*.go" -exec dirname {} \; | sort -u)
+
+# Output directories
+PLUGIN_OUT_DIR := bin/plugins
+INTERNAL_OUT_DIR := bin/internal
+
+.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins build-internal
 
 all: check-env install-mage deps fmt lint test build
 
@@ -56,9 +64,33 @@ test:
 	@echo ">> Running tests…"
 	mage Test
 
-build:
+build: build-plugins build-internal
 	@echo ">> Building binary…"
 	mage Build
+
+build-plugins:
+	@echo ">> Building plugins as shared objects..."
+	@mkdir -p $(PLUGIN_OUT_DIR)
+	@for dir in $(PLUGIN_DIRS); do \
+		plugin_name=$$(basename $$dir); \
+		echo "Building plugin: $$plugin_name"; \
+		go build -buildmode=plugin -o $(PLUGIN_OUT_DIR)/$$plugin_name.so $$dir/main.go; \
+	done
+	@echo "Plugins built successfully ✓"
+
+build-internal:
+	@echo ">> Building internal modules as shared objects..."
+	@mkdir -p $(INTERNAL_OUT_DIR)
+	@for dir in $(INTERNAL_DIRS); do \
+		module_name=$$(basename $$dir); \
+		echo "Building internal module: $$module_name"; \
+		if [ -f $$dir/main.go ]; then \
+			go build -buildmode=plugin -o $(INTERNAL_OUT_DIR)/$$module_name.so $$dir/main.go; \
+		else \
+			go build -buildmode=plugin -o $(INTERNAL_OUT_DIR)/$$module_name.so $$dir/*.go; \
+		fi \
+	done
+	@echo "Internal modules built successfully ✓"
 
 clean:
 	@echo ">> Cleaning…"

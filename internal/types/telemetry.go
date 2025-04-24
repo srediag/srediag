@@ -4,68 +4,125 @@
 package types
 
 import (
+	"context"
+
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// IMeterProvider defines an interface for creating metric instruments.
-// It abstracts the OpenTelemetry meter provider to allow for different
-// implementations and easier testing.
+// IMeterProvider defines the interface for a meter provider
 type IMeterProvider interface {
-	// Meter returns a new meter instance for creating metric instruments.
-	// The name parameter is used to identify the meter's source in the telemetry data.
-	// Options can be used to configure the meter's behavior.
+	// Meter creates a new Meter with the given name and version
 	Meter(name string, opts ...metric.MeterOption) metric.Meter
+	// MeterProvider returns the underlying meter provider
+	MeterProvider() metric.MeterProvider
+	// Shutdown shuts down the meter provider
+	Shutdown(ctx context.Context) error
 }
 
-// ITracerProvider defines an interface for creating tracers.
-// It abstracts the OpenTelemetry tracer provider to allow for different
-// implementations and easier testing.
+// ITracerProvider defines the interface for a tracer provider
 type ITracerProvider interface {
-	// Tracer returns a new tracer instance for creating spans.
-	// The name parameter is used to identify the tracer's source in the telemetry data.
-	// Options can be used to configure the tracer's behavior.
+	// Tracer creates a new Tracer with the given name and version
 	Tracer(name string, opts ...trace.TracerOption) trace.Tracer
+	// Shutdown shuts down the tracer provider
+	Shutdown(ctx context.Context) error
 }
 
-// ITelemetryBridge serves as the main interface for telemetry operations.
-// It provides access to metrics and tracing capabilities while managing
-// the underlying OpenTelemetry resource attributes.
+// MeterProviderWrapper wraps a meter provider
+type MeterProviderWrapper struct {
+	provider metric.MeterProvider
+}
+
+// NewMeterProviderWrapper creates a new meter provider wrapper
+func NewMeterProviderWrapper(provider metric.MeterProvider) *MeterProviderWrapper {
+	return &MeterProviderWrapper{
+		provider: provider,
+	}
+}
+
+// Meter creates a new Meter with the given name and version
+func (w *MeterProviderWrapper) Meter(name string, opts ...metric.MeterOption) metric.Meter {
+	return w.provider.Meter(name, opts...)
+}
+
+// MeterProvider returns the underlying meter provider
+func (w *MeterProviderWrapper) MeterProvider() metric.MeterProvider {
+	return w.provider
+}
+
+// Shutdown shuts down the meter provider
+func (w *MeterProviderWrapper) Shutdown(ctx context.Context) error {
+	if provider, ok := w.provider.(interface{ Shutdown(context.Context) error }); ok {
+		return provider.Shutdown(ctx)
+	}
+	return nil
+}
+
+// TracerProviderWrapper wraps a tracer provider
+type TracerProviderWrapper struct {
+	provider trace.TracerProvider
+}
+
+// NewTracerProviderWrapper creates a new tracer provider wrapper
+func NewTracerProviderWrapper(provider trace.TracerProvider) *TracerProviderWrapper {
+	return &TracerProviderWrapper{
+		provider: provider,
+	}
+}
+
+// Tracer creates a new Tracer with the given name and version
+func (w *TracerProviderWrapper) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
+	return w.provider.Tracer(name, opts...)
+}
+
+// Shutdown shuts down the tracer provider
+func (w *TracerProviderWrapper) Shutdown(ctx context.Context) error {
+	if provider, ok := w.provider.(interface{ Shutdown(context.Context) error }); ok {
+		return provider.Shutdown(ctx)
+	}
+	return nil
+}
+
+// ITelemetryBridge defines the interface for a telemetry bridge
 type ITelemetryBridge interface {
-	// IComponent embeds the base component interface
-	IComponent
-
-	// SetResource updates the OpenTelemetry resource with new attributes.
-	// The resource contains attributes that are common to all telemetry data
-	// emitted by this component (e.g., service name, version, environment).
-	SetResource(res *resource.Resource)
-
-	// GetResource returns the current OpenTelemetry resource.
-	// This resource contains the attributes that identify the source of
-	// telemetry data.
-	GetResource() *resource.Resource
-
-	// GetMeterProvider returns the meter provider for creating metrics.
-	// The meter provider is used to create new meters for recording
-	// measurements and observations.
+	// GetMeterProvider returns the meter provider
 	GetMeterProvider() IMeterProvider
-
-	// GetTracerProvider returns the tracer provider for distributed tracing.
-	// The tracer provider is used to create new tracers for tracking
-	// request flows and dependencies.
+	// GetTracerProvider returns the tracer provider
 	GetTracerProvider() ITracerProvider
+	// SetResource sets the resource attributes
+	SetResource(attributes map[string]string) error
+	// GetResource returns the current resource attributes
+	GetResource() map[string]string
+	// Start starts the telemetry bridge
+	Start(ctx context.Context) error
+	// Stop stops the telemetry bridge
+	Stop(ctx context.Context) error
+	// Shutdown shuts down the telemetry bridge
+	Shutdown(ctx context.Context) error
+	// IsHealthy returns true if the telemetry bridge is healthy
+	IsHealthy() bool
 }
 
-// IResourceMonitor provides an interface for monitoring system resources.
-// It tracks resource usage and health metrics for the local system or
-// specific components.
+// IResourceMonitor defines the interface for a resource monitor
 type IResourceMonitor interface {
-	// IComponent embeds the base component interface
-	IComponent
+	// GetMetrics returns the metrics for the resource
+	GetMetrics() map[string]interface{}
+	// GetThresholds returns the thresholds for the resource
+	GetThresholds() map[string]interface{}
+	// GetInterval returns the interval for the resource
+	GetInterval() string
+	// Start starts the resource monitor
+	Start(ctx context.Context) error
+	// Stop stops the resource monitor
+	Stop(ctx context.Context) error
+	// IsHealthy returns true if the resource monitor is healthy
+	IsHealthy() bool
+}
 
-	// GetMetrics returns the current resource metrics as key-value pairs.
-	// Keys are metric names (e.g., "cpu.usage", "memory.used")
-	// Values are the corresponding measurements.
-	GetMetrics() map[string]float64
+// ITelemetryComponent defines a simple interface for components with telemetry
+type ITelemetryComponent interface {
+	// GetName returns the name of the component
+	GetName() string
+	// GetType returns the type of the component
+	GetType() string
 }

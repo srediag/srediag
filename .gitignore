@@ -1,6 +1,7 @@
 # Binaries
 /bin/
-/bin/srediag
+.so
+.dll
 
 # Vendor
 /vendor/
@@ -12,6 +13,7 @@
 
 # Test
 *.out
+coverage
 coverage.out
 
 # OS

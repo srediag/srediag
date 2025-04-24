@@ -2,180 +2,206 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 	"go.uber.org/zap"
-
-	"github.com/srediag/srediag/internal/types"
 )
 
-// ConfigProvider defines the interface for dynamic configuration providers
-type ConfigProvider interface {
-	// Start starts the configuration provider
-	Start(ctx context.Context) error
-	// Stop stops the configuration provider
-	Stop(ctx context.Context) error
-	// Get retrieves the current configuration
-	Get() (*types.Config, error)
-	// Watch returns a channel that receives configuration updates
-	Watch() <-chan *types.Config
-	// IsWatching returns true if the provider is actively watching for changes
-	IsWatching() bool
-}
-
-// DynamicProvider implements a dynamic configuration provider
-type DynamicProvider struct {
+// Provider manages configuration loading and reloading
+type Provider struct {
 	mu            sync.RWMutex
 	logger        *zap.Logger
-	config        *types.Config
-	watchChan     chan *types.Config
-	watchInterval time.Duration
-	watching      bool
-	configPath    string
+	providers     map[string]confmap.Provider
+	watchers      []confmap.WatcherFunc
+	validators    []ConfigValidator
+	settings      component.TelemetrySettings
+	reloadPeriod  time.Duration
+	lastReload    time.Time
+	currentConfig *confmap.Conf
 }
 
-// NewDynamicProvider creates a new dynamic configuration provider
-func NewDynamicProvider(logger *zap.Logger, configPath string, watchInterval time.Duration) *DynamicProvider {
-	if watchInterval == 0 {
-		watchInterval = 30 * time.Second
+// NewProvider creates a new configuration provider
+func NewProvider(logger *zap.Logger, settings component.TelemetrySettings) *Provider {
+	if logger == nil {
+		logger = zap.NewNop()
 	}
 
-	return &DynamicProvider{
-		logger:        logger,
-		configPath:    configPath,
-		watchInterval: watchInterval,
-		watchChan:     make(chan *types.Config),
+	return &Provider{
+		logger:       logger,
+		providers:    make(map[string]confmap.Provider),
+		validators:   make([]ConfigValidator, 0),
+		settings:     settings,
+		reloadPeriod: 30 * time.Second,
 	}
 }
 
-// Start implements ConfigProvider
-func (p *DynamicProvider) Start(ctx context.Context) error {
+// RegisterProvider registers a configuration provider
+func (p *Provider) RegisterProvider(name string, provider confmap.Provider) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.watching {
-		return fmt.Errorf("provider already started")
+	if _, exists := p.providers[name]; exists {
+		return fmt.Errorf("provider %q already registered", name)
 	}
 
-	// Load initial configuration
-	if err := p.loadConfig(); err != nil {
-		return err
-	}
-
-	p.watching = true
-	go p.watchConfig(ctx)
-
-	p.logger.Info("Started dynamic configuration provider",
-		zap.String("config_path", p.configPath),
-		zap.Duration("watch_interval", p.watchInterval))
-
+	p.providers[name] = provider
+	p.logger.Info("Registered configuration provider", zap.String("name", name))
 	return nil
 }
 
-// Stop implements ConfigProvider
-func (p *DynamicProvider) Stop(ctx context.Context) error {
+// UnregisterProvider removes a configuration provider
+func (p *Provider) UnregisterProvider(name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.watching {
-		return nil
+	if _, exists := p.providers[name]; !exists {
+		return fmt.Errorf("provider %q not found", name)
 	}
 
-	p.watching = false
-	close(p.watchChan)
-
-	p.logger.Info("Stopped dynamic configuration provider")
+	delete(p.providers, name)
+	p.logger.Info("Unregistered configuration provider", zap.String("name", name))
 	return nil
 }
 
-// Get implements ConfigProvider
-func (p *DynamicProvider) Get() (*types.Config, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if p.config == nil {
-		return nil, fmt.Errorf("configuration not loaded")
-	}
-
-	return p.config, nil
+// AddValidator adds a configuration validator
+func (p *Provider) AddValidator(validator ConfigValidator) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.validators = append(p.validators, validator)
 }
 
-// Watch implements ConfigProvider
-func (p *DynamicProvider) Watch() <-chan *types.Config {
-	return p.watchChan
+// AddWatcher adds a configuration change watcher
+func (p *Provider) AddWatcher(watcher confmap.WatcherFunc) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.watchers = append(p.watchers, watcher)
 }
 
-// IsWatching implements ConfigProvider
-func (p *DynamicProvider) IsWatching() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.watching
+// Load loads configuration from all registered providers
+func (p *Provider) Load(ctx context.Context) (*confmap.Conf, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var configs []*confmap.Conf
+	for name, provider := range p.providers {
+		retrieved, err := provider.Retrieve(ctx, provider.Scheme()+":"+name, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config from provider %q: %w", name, err)
+		}
+
+		raw, err := retrieved.AsRaw()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get raw config from provider %q: %w", name, err)
+		}
+
+		if rawMap, ok := raw.(map[string]interface{}); ok {
+			conf := confmap.NewFromStringMap(rawMap)
+			configs = append(configs, conf)
+		} else {
+			return nil, fmt.Errorf("invalid configuration format from provider %q", name)
+		}
+	}
+
+	if len(configs) == 0 {
+		return confmap.New(), nil
+	}
+
+	merged := configs[0]
+	for _, conf := range configs[1:] {
+		if err := merged.Merge(conf); err != nil {
+			return nil, fmt.Errorf("failed to merge configurations: %w", err)
+		}
+	}
+
+	// Validate configuration
+	for _, validator := range p.validators {
+		if err := validator.Validate(merged); err != nil {
+			return nil, fmt.Errorf("configuration validation failed: %w", err)
+		}
+	}
+
+	if err := p.updateConfig(merged); err != nil {
+		return nil, err
+	}
+
+	return merged, nil
 }
 
-// loadConfig loads the configuration from file
-func (p *DynamicProvider) loadConfig() error {
-	data, err := os.ReadFile(p.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+// updateConfig updates the current configuration and notifies watchers
+func (p *Provider) updateConfig(conf *confmap.Conf) error {
+	p.currentConfig = conf
+	p.lastReload = time.Now()
+
+	// Notify watchers
+	for _, watcher := range p.watchers {
+		watcher(&confmap.ChangeEvent{
+			Error: nil,
+		})
 	}
 
-	var newConfig types.Config
-	if err := json.Unmarshal(data, &newConfig); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	if err := newConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	p.config = &newConfig
 	return nil
 }
 
-// watchConfig watches for configuration changes
-func (p *DynamicProvider) watchConfig(ctx context.Context) {
-	ticker := time.NewTicker(p.watchInterval)
+// Get returns the current configuration
+func (p *Provider) Get() *confmap.Conf {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.currentConfig
+}
+
+// Watch starts watching for configuration changes
+func (p *Provider) Watch(ctx context.Context) error {
+	ticker := time.NewTicker(p.reloadPeriod)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-ticker.C:
-			p.mu.Lock()
-			if !p.watching {
-				p.mu.Unlock()
-				return
-			}
-
-			oldConfig := p.config
-			if err := p.loadConfig(); err != nil {
+			if _, err := p.Load(ctx); err != nil {
 				p.logger.Error("Failed to reload configuration",
 					zap.Error(err))
-				p.mu.Unlock()
-				continue
 			}
-
-			if p.configChanged(oldConfig, p.config) {
-				p.logger.Info("Configuration changed, notifying subscribers")
-				p.watchChan <- p.config
-			}
-			p.mu.Unlock()
 		}
 	}
 }
 
-// configChanged checks if the configuration has changed
-func (p *DynamicProvider) configChanged(old, new *types.Config) bool {
-	if old == nil || new == nil {
-		return old != new
+// SetReloadPeriod sets the configuration reload period
+func (p *Provider) SetReloadPeriod(period time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reloadPeriod = period
+}
+
+// LastReloadTime returns the time of the last configuration reload
+func (p *Provider) LastReloadTime() time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.lastReload
+}
+
+// Shutdown cleans up resources
+func (p *Provider) Shutdown(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for name, provider := range p.providers {
+		if err := provider.Shutdown(ctx); err != nil {
+			p.logger.Error("Failed to shutdown provider",
+				zap.String("name", name),
+				zap.Error(err))
+		}
 	}
 
-	// Add your comparison logic here
-	// For now, we'll consider any change as significant
-	return true
+	p.providers = make(map[string]confmap.Provider)
+	p.watchers = nil
+	p.validators = nil
+	p.currentConfig = nil
+
+	return nil
 }

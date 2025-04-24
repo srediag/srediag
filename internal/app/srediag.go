@@ -72,9 +72,18 @@ func NewSREDiag(logger *zap.Logger, cfg *config.ConfigRoot) (*SREDiag, error) {
 	}
 
 	// Initialize telemetry bridge
+	resourceAttrs := make(map[string]string)
+	if res != nil {
+		for _, attr := range res.Attributes() {
+			if val := attr.Value.AsString(); val != "" {
+				resourceAttrs[string(attr.Key)] = val
+			}
+		}
+	}
+
 	telemetryBridge := diagnostic.NewTelemetryBridge(
 		logger.Named("telemetry-bridge"),
-		res,
+		resourceAttrs,
 	)
 	s.telemetryBridge = telemetryBridge
 
@@ -155,6 +164,7 @@ func (s *SREDiag) createFactories() (otelcol.Factories, error) {
 // initializeDiagnostics initializes all diagnostic components
 func (s *SREDiag) initializeDiagnostics() error {
 	meter := s.telemetryBridge.GetMeterProvider().Meter("srediag.diagnostics")
+	meterProvider := s.telemetryBridge.GetMeterProvider().MeterProvider()
 
 	// Initialize system diagnostics if enabled
 	if s.config.Diagnostic.System.Enabled {
@@ -163,7 +173,17 @@ func (s *SREDiag) initializeDiagnostics() error {
 			meter,
 			&s.config.Diagnostic.System,
 		)
-		if err := s.systemDiag.Configure(&s.config.Diagnostic.System); err != nil {
+		settings := types.ComponentSettings{
+			"config": &s.config.Diagnostic.System,
+			"telemetry": types.NewTelemetrySettings(
+				s.logger,
+				nil,
+				meter,
+				nil,
+				meterProvider,
+			),
+		}
+		if err := s.systemDiag.Configure(settings); err != nil {
 			return fmt.Errorf("failed to configure system diagnostics: %w", err)
 		}
 	}
@@ -175,7 +195,17 @@ func (s *SREDiag) initializeDiagnostics() error {
 			meter,
 			&s.config.Diagnostic.Kubernetes,
 		)
-		if err := s.kubernetesDiag.Configure(&s.config.Diagnostic.Kubernetes); err != nil {
+		settings := types.ComponentSettings{
+			"config": &s.config.Diagnostic.Kubernetes,
+			"telemetry": types.NewTelemetrySettings(
+				s.logger,
+				nil,
+				meter,
+				nil,
+				meterProvider,
+			),
+		}
+		if err := s.kubernetesDiag.Configure(settings); err != nil {
 			return fmt.Errorf("failed to configure kubernetes diagnostics: %w", err)
 		}
 	}
@@ -187,7 +217,17 @@ func (s *SREDiag) initializeDiagnostics() error {
 			meter,
 			&s.config.Diagnostic.Cloud,
 		)
-		if err := s.cloudDiag.Configure(&s.config.Diagnostic.Cloud); err != nil {
+		settings := types.ComponentSettings{
+			"config": &s.config.Diagnostic.Cloud,
+			"telemetry": types.NewTelemetrySettings(
+				s.logger,
+				nil,
+				meter,
+				nil,
+				meterProvider,
+			),
+		}
+		if err := s.cloudDiag.Configure(settings); err != nil {
 			return fmt.Errorf("failed to configure cloud diagnostics: %w", err)
 		}
 	}
@@ -405,12 +445,12 @@ func (s *SREDiag) GetDiagnosticManager() types.IDiagnosticManager {
 }
 
 // Configure implements IComponent
-func (s *SREDiag) Configure(cfg interface{}) error {
-	if cfg == nil {
-		return fmt.Errorf("configuration cannot be nil")
+func (s *SREDiag) Configure(settings types.ComponentSettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings cannot be nil")
 	}
 
-	config, ok := cfg.(*config.ConfigRoot)
+	config, ok := settings.GetInterface("config").(*config.ConfigRoot)
 	if !ok {
 		return fmt.Errorf("invalid configuration type")
 	}
@@ -432,4 +472,18 @@ func (s *SREDiag) GetVersion() string {
 // GetType implements types.IRunner
 func (s *SREDiag) GetType() types.ComponentType {
 	return types.ComponentTypeService
+}
+
+// GetStatus implements IComponent
+func (s *SREDiag) GetStatus() types.ComponentStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.running {
+		return types.ComponentStatusStopped
+	}
+	if !s.health {
+		return types.ComponentStatusError
+	}
+	return types.ComponentStatusRunning
 }

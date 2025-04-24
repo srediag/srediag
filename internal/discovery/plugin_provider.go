@@ -136,10 +136,10 @@ func (p *PluginProvider) loadPlugin(path string) (ServiceInfo, error) {
 	}
 
 	return ServiceInfo{
-		ID:      plugin.GetID(),
-		Name:    plugin.GetID(), // Using ID as name since we don't have GetName anymore
+		ID:      plugin.GetName(),
+		Name:    plugin.GetName(),
 		Type:    string(plugin.GetCategory()),
-		Version: "unknown", // Version is not part of the interface anymore
+		Version: plugin.GetVersion(),
 		Metadata: map[string]string{
 			"category": string(plugin.GetCategory()),
 		},

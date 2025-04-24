@@ -4,102 +4,183 @@ import (
 	"fmt"
 	"sync"
 
-	"go.uber.org/zap"
-
-	"github.com/srediag/srediag/internal/types"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/connector"
+	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/extension"
+	"go.opentelemetry.io/collector/processor"
+	"go.opentelemetry.io/collector/receiver"
 )
 
-// Registry manages component factories
+// Registry manages both native OpenTelemetry components and custom components
 type Registry struct {
-	mu        sync.RWMutex
-	logger    *zap.Logger
-	factories map[types.ComponentType]map[string]*Factory
+	mu sync.RWMutex
+
+	receivers  map[component.Type]receiver.Factory
+	processors map[component.Type]processor.Factory
+	exporters  map[component.Type]exporter.Factory
+	extensions map[component.Type]extension.Factory
+	connectors map[component.Type]connector.Factory
+
+	// Module information
+	receiverModules  map[component.Type]string
+	processorModules map[component.Type]string
+	exporterModules  map[component.Type]string
+	extensionModules map[component.Type]string
+	connectorModules map[component.Type]string
 }
 
-// NewRegistry creates a new factory registry
-func NewRegistry(logger *zap.Logger) *Registry {
+// NewRegistry creates a new Registry
+func NewRegistry() *Registry {
 	return &Registry{
-		logger:    logger,
-		factories: make(map[types.ComponentType]map[string]*Factory),
+		receivers:        make(map[component.Type]receiver.Factory),
+		processors:       make(map[component.Type]processor.Factory),
+		exporters:        make(map[component.Type]exporter.Factory),
+		extensions:       make(map[component.Type]extension.Factory),
+		connectors:       make(map[component.Type]connector.Factory),
+		receiverModules:  make(map[component.Type]string),
+		processorModules: make(map[component.Type]string),
+		exporterModules:  make(map[component.Type]string),
+		extensionModules: make(map[component.Type]string),
+		connectorModules: make(map[component.Type]string),
 	}
 }
 
-// RegisterFactory registers a factory for a specific component type
-func (r *Registry) RegisterFactory(componentType types.ComponentType, factory *Factory) error {
+// RegisterReceiver registers a receiver factory
+func (r *Registry) RegisterReceiver(f receiver.Factory, module string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.factories[componentType]; !exists {
-		r.factories[componentType] = make(map[string]*Factory)
+	if _, exists := r.receivers[f.Type()]; exists {
+		return fmt.Errorf("receiver factory %q already registered", f.Type())
 	}
-
-	id := factory.GetID()
-	if _, exists := r.factories[componentType][id]; exists {
-		return fmt.Errorf("factory already registered for type %s with id %s", componentType, id)
-	}
-
-	r.factories[componentType][id] = factory
-	r.logger.Info("Registered factory",
-		zap.String("component_type", componentType.String()),
-		zap.String("factory_id", id))
-
+	r.receivers[f.Type()] = f
+	r.receiverModules[f.Type()] = module
 	return nil
 }
 
-// GetFactory returns a factory for a specific component and id
-func (r *Registry) GetFactory(componentType types.ComponentType, id string) (*Factory, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if factories, exists := r.factories[componentType]; exists {
-		if factory, exists := factories[id]; exists {
-			return factory, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no factory registered for component type %s and id %s",
-		componentType.String(), id)
-}
-
-// ListFactories returns all registered factories for a component type
-func (r *Registry) ListFactories(componentType types.ComponentType) []*Factory {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var factories []*Factory
-	if componentFactories, exists := r.factories[componentType]; exists {
-		for _, factory := range componentFactories {
-			factories = append(factories, factory)
-		}
-	}
-
-	return factories
-}
-
-// UnregisterFactory removes a factory registration
-func (r *Registry) UnregisterFactory(componentType types.ComponentType, id string) error {
+// RegisterProcessor registers a processor factory
+func (r *Registry) RegisterProcessor(f processor.Factory, module string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if factories, exists := r.factories[componentType]; exists {
-		if _, exists := factories[id]; exists {
-			delete(factories, id)
-			r.logger.Info("Unregistered factory",
-				zap.String("component_type", componentType.String()),
-				zap.String("factory_id", id))
-			return nil
-		}
+	if _, exists := r.processors[f.Type()]; exists {
+		return fmt.Errorf("processor factory %q already registered", f.Type())
 	}
-
-	return fmt.Errorf("no factory registered for component type %s and id %s",
-		componentType.String(), id)
+	r.processors[f.Type()] = f
+	r.processorModules[f.Type()] = module
+	return nil
 }
 
-// Clear removes all factory registrations
-func (r *Registry) Clear() {
+// RegisterExporter registers an exporter factory
+func (r *Registry) RegisterExporter(f exporter.Factory, module string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.factories = make(map[types.ComponentType]map[string]*Factory)
-	r.logger.Info("Cleared all factory registrations")
+	if _, exists := r.exporters[f.Type()]; exists {
+		return fmt.Errorf("exporter factory %q already registered", f.Type())
+	}
+	r.exporters[f.Type()] = f
+	r.exporterModules[f.Type()] = module
+	return nil
+}
+
+// RegisterExtension registers an extension factory
+func (r *Registry) RegisterExtension(f extension.Factory, module string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.extensions[f.Type()]; exists {
+		return fmt.Errorf("extension factory %q already registered", f.Type())
+	}
+	r.extensions[f.Type()] = f
+	r.extensionModules[f.Type()] = module
+	return nil
+}
+
+// RegisterConnector registers a connector factory
+func (r *Registry) RegisterConnector(f connector.Factory, module string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.connectors[f.Type()]; exists {
+		return fmt.Errorf("connector factory %q already registered", f.Type())
+	}
+	r.connectors[f.Type()] = f
+	r.connectorModules[f.Type()] = module
+	return nil
+}
+
+// GetFactories returns all registered factories
+func (r *Registry) GetFactories() (map[component.Type]receiver.Factory,
+	map[component.Type]processor.Factory,
+	map[component.Type]exporter.Factory,
+	map[component.Type]extension.Factory,
+	map[component.Type]connector.Factory) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	receivers := make(map[component.Type]receiver.Factory, len(r.receivers))
+	for k, v := range r.receivers {
+		receivers[k] = v
+	}
+
+	processors := make(map[component.Type]processor.Factory, len(r.processors))
+	for k, v := range r.processors {
+		processors[k] = v
+	}
+
+	exporters := make(map[component.Type]exporter.Factory, len(r.exporters))
+	for k, v := range r.exporters {
+		exporters[k] = v
+	}
+
+	extensions := make(map[component.Type]extension.Factory, len(r.extensions))
+	for k, v := range r.extensions {
+		extensions[k] = v
+	}
+
+	connectors := make(map[component.Type]connector.Factory, len(r.connectors))
+	for k, v := range r.connectors {
+		connectors[k] = v
+	}
+
+	return receivers, processors, exporters, extensions, connectors
+}
+
+// GetModuleInfo returns module information for all registered components
+func (r *Registry) GetModuleInfo() (map[component.Type]string,
+	map[component.Type]string,
+	map[component.Type]string,
+	map[component.Type]string,
+	map[component.Type]string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	receiverModules := make(map[component.Type]string, len(r.receiverModules))
+	for k, v := range r.receiverModules {
+		receiverModules[k] = v
+	}
+
+	processorModules := make(map[component.Type]string, len(r.processorModules))
+	for k, v := range r.processorModules {
+		processorModules[k] = v
+	}
+
+	exporterModules := make(map[component.Type]string, len(r.exporterModules))
+	for k, v := range r.exporterModules {
+		exporterModules[k] = v
+	}
+
+	extensionModules := make(map[component.Type]string, len(r.extensionModules))
+	for k, v := range r.extensionModules {
+		extensionModules[k] = v
+	}
+
+	connectorModules := make(map[component.Type]string, len(r.connectorModules))
+	for k, v := range r.connectorModules {
+		connectorModules[k] = v
+	}
+
+	return receiverModules, processorModules, exporterModules, extensionModules, connectorModules
 }

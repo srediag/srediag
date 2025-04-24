@@ -5,18 +5,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
+
+	"github.com/srediag/srediag/internal/types"
 )
 
-// Manager handles configuration loading and validation
+// Manager manages configuration
 type Manager struct {
+	mu         sync.RWMutex
 	logger     *zap.Logger
+	configs    map[string]interface{}
 	configPath string
-	buildInfo  component.BuildInfo
 }
 
 // PipelineConfig represents a data pipeline configuration
@@ -39,13 +43,64 @@ type CollectorConfig struct {
 	Service    ServiceConfig          `yaml:"service"`
 }
 
-// NewManager creates a new configuration manager
-func NewManager(logger *zap.Logger, configPath string, buildInfo component.BuildInfo) *Manager {
+// NewManager creates a new config manager
+func NewManager(logger *zap.Logger, configPath string) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
 		logger:     logger,
+		configs:    make(map[string]interface{}),
 		configPath: configPath,
-		buildInfo:  buildInfo,
 	}
+}
+
+// LoadConfig loads configuration from file
+func (m *Manager) LoadConfig() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.configPath == "" {
+		return fmt.Errorf("config path not set")
+	}
+
+	data, err := os.ReadFile(m.configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	m.configs = config
+	return nil
+}
+
+// SaveConfig saves configuration to file
+func (m *Manager) SaveConfig() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.configPath == "" {
+		return fmt.Errorf("config path not set")
+	}
+
+	data, err := yaml.Marshal(m.configs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(m.configPath), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(m.configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }
 
 // Load loads and validates configuration
@@ -86,7 +141,7 @@ func (m *Manager) Load(ctx context.Context) (*confmap.Conf, error) {
 
 // BuildInfo returns the collector build information
 func (m *Manager) BuildInfo() component.BuildInfo {
-	return m.buildInfo
+	return component.BuildInfo{}
 }
 
 func (m *Manager) verifyConfigFile() (string, error) {
@@ -129,5 +184,49 @@ func (m *Manager) validatePipeline(name string, pipeline PipelineConfig) error {
 		return fmt.Errorf("pipeline %s must have at least one exporter", name)
 	}
 
+	return nil
+}
+
+// LoadPluginConfig loads and validates plugin configuration
+func (m *Manager) LoadPluginConfig(ctx context.Context, plugin types.IPlugin) error {
+	if plugin == nil {
+		return fmt.Errorf("plugin cannot be nil")
+	}
+
+	settings := types.ComponentSettings{
+		"name":     plugin.GetName(),
+		"version":  plugin.GetVersion(),
+		"type":     plugin.GetType(),
+		"category": plugin.GetCategory(),
+	}
+
+	return plugin.Configure(settings)
+}
+
+// DeletePluginConfig deletes plugin configuration
+func (m *Manager) DeletePluginConfig(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.configs, name)
+	m.logger.Info("Deleted plugin configuration", zap.String("name", name))
+	return nil
+}
+
+// Initialize initializes the config manager
+func (m *Manager) Initialize(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.logger.Info("Initializing config manager")
+	return nil
+}
+
+// Shutdown shuts down the config manager
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.logger.Info("Shutting down config manager")
 	return nil
 }

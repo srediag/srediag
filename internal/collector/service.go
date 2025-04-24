@@ -56,7 +56,7 @@ func New(opts Options) (*Service, error) {
 		}
 	}
 
-	configMgr := config.NewManager(logger, opts.ConfigPath, opts.BuildInfo)
+	configMgr := config.NewManager(logger, opts.ConfigPath)
 
 	telemetryConfig := &types.TelemetryConfig{
 		Enabled: true,
