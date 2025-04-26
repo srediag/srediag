@@ -1,67 +1,70 @@
 package commands
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
+
+	"github.com/srediag/srediag/internal/diagnostics"
 )
 
 func newDiagnoseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diagnose",
-		Short: "Run diagnostics",
-		Long: `Run various diagnostic checks on the system, Kubernetes, or cloud resources.
-		
-Examples:
-  # Basic system diagnostics
-  srediag diagnose system
-  srediag diagnose system --resource cpu
-  srediag diagnose system --resource memory
-  srediag diagnose system --resource disk`,
+		Short: "Run system diagnostics",
+		Long: `The diagnose command runs various diagnostic checks to identify
+potential issues and provide insights about the system.`,
+		RunE: runDiagnose,
 	}
 
 	// Add subcommands
 	cmd.AddCommand(
-		newDiagnoseSystemCmd(),
-		newDiagnoseKubernetesCmd(),
+		newSystemDiagCmd(),
+		newPerformanceDiagCmd(),
+		newSecurityDiagCmd(),
 	)
 
 	return cmd
 }
 
-func newDiagnoseSystemCmd() *cobra.Command {
-	var resource string
-
-	cmd := &cobra.Command{
-		Use:   "system [--resource <resource>]",
-		Short: "Run system diagnostics",
-		Long:  "Run diagnostics on the local system resources",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			logger := getLogger()
-			logger.Info("running system diagnostics",
-				zap.String("resource", resource))
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&resource, "resource", "", "resource to diagnose (cpu/memory/disk)")
-	return cmd
+func runDiagnose(cmd *cobra.Command, args []string) error {
+	fmt.Println("Please specify a diagnostic type to run")
+	return cmd.Help()
 }
 
-func newDiagnoseKubernetesCmd() *cobra.Command {
-	var cluster string
-
-	cmd := &cobra.Command{
-		Use:   "kubernetes [--cluster <cluster>]",
-		Short: "Run Kubernetes diagnostics",
-		Long:  "Run diagnostics on Kubernetes clusters",
+func newSystemDiagCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "system",
+		Short: "Run system diagnostics",
+		Long:  `Check system health, resource usage, and configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logger := getLogger()
-			logger.Info("running kubernetes diagnostics",
-				zap.String("cluster", cluster))
-			return nil
+			diag := diagnostics.NewSystemDiagnostics(cmdSettings.GetLogger())
+			return diag.Run(context.Background())
 		},
 	}
+}
 
-	cmd.Flags().StringVar(&cluster, "cluster", "", "target Kubernetes cluster")
-	return cmd
+func newPerformanceDiagCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "performance",
+		Short: "Run performance diagnostics",
+		Long:  `Analyze system and application performance metrics.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			diag := diagnostics.NewPerformanceDiagnostics(cmdSettings.GetLogger())
+			return diag.Run(context.Background())
+		},
+	}
+}
+
+func newSecurityDiagCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "security",
+		Short: "Run security diagnostics",
+		Long:  `Check security configurations and potential vulnerabilities.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			diag := diagnostics.NewSecurityDiagnostics(cmdSettings.GetLogger())
+			return diag.Run(context.Background())
+		},
+	}
 }

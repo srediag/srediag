@@ -1,0 +1,4 @@
+nohup: ignorando entrada
+{"level":"info","ts":1745560480.6433873,"caller":"plugin/manager.go:35","msg":"Plugin directory does not exist","dir":"/etc/srediag/plugins"}
+{"level":"warn","ts":1745560480.6434295,"caller":"srediag/main.go:48","msg":"Failed to load default config","error":"failed to read config file: open /etc/srediag/config/srediag.yaml: no such file or directory"}
+{"level":"info","ts":1745560480.6435118,"caller":"service/service.go:36","msg":"Starting SREDIAG service","receivers":0,"processors":0,"exporters":0,"extensions":0,"connectors":0}

@@ -260,3 +260,32 @@ srediag audit config --path /etc/srediag
 - Security vulnerability assessment
 - Configuration validation
 - Resource optimization recommendations
+
+## Plugin Development
+
+### Building Plugins
+
+To build a plugin, use the following bash command:
+
+```bash
+go build -buildmode=plugin -o ../../bin/plugins/plugin_name.so .
+```
+
+This will create a shared object file that can be loaded by SREDIAG. Make sure to:
+
+1. Use bash shell (not PowerShell) for building plugins
+2. Place the built plugin in the `bin/plugins` directory
+3. Name the plugin file with a `.so` extension
+
+For example, to build the simple receiver plugin:
+
+```bash
+cd plugins/examples/simplereceiver
+go build -buildmode=plugin -o ../../bin/plugins/simplereceiver.so .
+```
+
+### Plugin Configuration
+
+```bash
+# ... existing code ...
+```

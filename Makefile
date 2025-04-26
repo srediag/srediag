@@ -11,15 +11,33 @@ export GOFLAGS      := -mod=readonly
 GO_VERSION        := $(shell go version | awk '{print $$3}')
 REQUIRED_GO_MAJOR := 1.24
 
-# Directories containing modules to be built as shared objects
-PLUGIN_DIRS := $(shell find plugins -type f -name "main.go" -exec dirname {} \;)
-INTERNAL_DIRS := $(shell find internal -type f -name "*.go" -exec dirname {} \; | sort -u)
-
 # Output directories
 PLUGIN_OUT_DIR := bin/plugins
-INTERNAL_OUT_DIR := bin/internal
+PLUGIN_TMP_DIR := $(PLUGIN_OUT_DIR)/.tmp
 
-.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins build-internal
+# Get Go version and build info
+GO := go
+GOARCH := $(shell go env GOARCH)
+GOOS := $(shell go env GOOS)
+VERSION := 0.1.0
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
+
+# Build flags
+BUILD_FLAGS := -trimpath \
+    -ldflags="-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
+
+# Plugin build flags - must match main binary flags
+PLUGIN_BUILD_FLAGS := -buildmode=plugin \
+    -trimpath \
+    -tags=static \
+    -installsuffix netgo \
+    -ldflags="-linkmode external -extldflags '-static' -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)" \
+    $(BUILD_FLAGS)
+
+# Binary paths
+SREDIAG_BINARY := bin/srediag
+
+.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins update-deps verify-deps
 
 all: check-env install-mage deps fmt lint test build
 
@@ -48,7 +66,18 @@ install-mage:
 	}
 	@echo "Mage available at: $(shell command -v mage)"
 
-deps:
+update-deps:
+	@echo ">> Updating dependencies..."
+	@go get -u ./...
+	@go mod tidy
+	@echo "Dependencies updated ✓"
+
+verify-deps:
+	@echo ">> Verifying dependencies..."
+	@go mod verify
+	@echo "Dependencies verified ✓"
+
+deps: verify-deps
 	@echo ">> Downloading modules…"
 	@go mod download
 
@@ -64,33 +93,54 @@ test:
 	@echo ">> Running tests…"
 	mage Test
 
-build: build-plugins build-internal
-	@echo ">> Building binary…"
-	mage Build
+build: build-binary build-plugins
+	@echo ">> Building complete..."
+
+build-binary:
+	@echo ">> Building collector binary..."
+	@echo "Using Go version: $(GO_VERSION)"
+	@echo "Architecture: $(GOARCH)"
+	@echo "OS: $(GOOS)"
+	@mkdir -p bin
+	@CGO_ENABLED=1 \
+	GOARCH=$(GOARCH) \
+	GOOS=$(GOOS) \
+	$(GO) build \
+		$(BUILD_FLAGS) \
+		-o $(SREDIAG_BINARY) \
+		./cmd/srediag
+	@echo "✓ Built collector binary at $(SREDIAG_BINARY)"
 
 build-plugins:
-	@echo ">> Building plugins as shared objects..."
+	@echo ">> Building plugins from otelcol-builder.yaml..."
+	@echo "Using Go version: $(GO_VERSION)"
+	@echo "Architecture: $(GOARCH)"
+	@echo "OS: $(GOOS)"
+	@rm -rf $(PLUGIN_TMP_DIR)
 	@mkdir -p $(PLUGIN_OUT_DIR)
-	@for dir in $(PLUGIN_DIRS); do \
-		plugin_name=$$(basename $$dir); \
-		echo "Building plugin: $$plugin_name"; \
-		go build -buildmode=plugin -o $(PLUGIN_OUT_DIR)/$$plugin_name.so $$dir/main.go; \
-	done
-	@echo "Plugins built successfully ✓"
-
-build-internal:
-	@echo ">> Building internal modules as shared objects..."
-	@mkdir -p $(INTERNAL_OUT_DIR)
-	@for dir in $(INTERNAL_DIRS); do \
-		module_name=$$(basename $$dir); \
-		echo "Building internal module: $$module_name"; \
-		if [ -f $$dir/main.go ]; then \
-			go build -buildmode=plugin -o $(INTERNAL_OUT_DIR)/$$module_name.so $$dir/main.go; \
-		else \
-			go build -buildmode=plugin -o $(INTERNAL_OUT_DIR)/$$module_name.so $$dir/*.go; \
+	@mkdir -p $(PLUGIN_TMP_DIR)
+	@$(SREDIAG_BINARY) plugin generate --config otelcol-builder.yaml --output-dir $(PLUGIN_TMP_DIR)
+	@echo ">> Building generated plugins..."
+	@for plugin_dir in $(PLUGIN_TMP_DIR)/*; do \
+		if [ -d "$$plugin_dir" ]; then \
+			plugin_name=$$(basename $$plugin_dir); \
+			plugin_type=$$(echo $$plugin_name | cut -d'_' -f1); \
+			component_name=$$(echo $$plugin_name | cut -d'_' -f2-); \
+			echo "Building $$component_name"; \
+			mkdir -p $(PLUGIN_OUT_DIR)/$$plugin_type; \
+			cd "$$plugin_dir" && \
+			CGO_ENABLED=1 \
+			GOARCH=$(GOARCH) \
+			GOOS=$(GOOS) \
+			$(GO) mod tidy && \
+			$(GO) build \
+				$(PLUGIN_BUILD_FLAGS) \
+				-o $(CURDIR)/$(PLUGIN_OUT_DIR)/$$plugin_type/$${component_name}.so \
+				.; \
+			cd - > /dev/null || exit 1; \
 		fi \
 	done
-	@echo "Internal modules built successfully ✓"
+	@echo "✓ Built plugins in $(PLUGIN_OUT_DIR)"
 
 clean:
 	@echo ">> Cleaning…"

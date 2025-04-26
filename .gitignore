@@ -4,7 +4,7 @@
 .dll
 
 # Vendor
-/vendor/
+vendor/
 /pkg/mod/
 
 # IDE files

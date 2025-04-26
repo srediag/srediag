@@ -1,0 +1,51 @@
+plugins:
+  path: "./bin/plugins"
+
+receivers:
+  nop:
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  memorylimiter:
+    check_interval: 1s
+    limit_mib: 1024
+
+exporters:
+  debug:
+    verbosity: detailed
+  otlp:
+    endpoint: "localhost:4317"
+    tls:
+      insecure: true
+  otlphttp:
+    endpoint: "http://localhost:4318"
+
+extensions:
+  zpages:
+    endpoint: "localhost:55679"
+
+service:
+  telemetry:
+    logs:
+      level: "debug"
+      development: true
+    metrics:
+      level: "detailed"
+      address: "localhost:8888"
+
+  extensions: [zpages]
+  pipelines:
+    metrics:
+      receivers: [nop]
+      processors: [batch, memorylimiter]
+      exporters: [debug, otlp, otlphttp]
+    traces:
+      receivers: [nop]
+      processors: [batch]
+      exporters: [otlp]
+    logs:
+      receivers: [nop]
+      processors: [batch]
+      exporters: [debug] 

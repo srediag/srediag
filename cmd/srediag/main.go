@@ -1,101 +1,165 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/srediag/srediag/cmd/srediag/commands"
-	"github.com/srediag/srediag/internal/factory"
+	"github.com/srediag/srediag/internal/components"
+	"github.com/srediag/srediag/internal/config"
 	"github.com/srediag/srediag/internal/plugin"
+	"github.com/srediag/srediag/internal/settings"
+)
+
+// Component types
+const (
+	typeReceiver  = "receiver"
+	typeProcessor = "processor"
+	typeExporter  = "exporter"
+	typeExtension = "extension"
 )
 
 func main() {
-	// Initialize logger with a custom sync function
-	config := zap.NewDevelopmentConfig()
-	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	logger, err := config.Build(zap.WithCaller(true))
+	ctx := context.Background()
+
+	// Initialize logger
+	logger, err := zap.NewDevelopment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Ensure we sync the logger on exit, ignoring specific known errors
 	defer func() {
-		// Ignore sync errors as they are generally harmless
-		// See: https://github.com/uber-go/zap/issues/880
-		_ = logger.Sync()
+		if err := logger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
+		}
 	}()
 
-	// Create factory registry
-	registry := factory.NewRegistry()
-
-	// Create plugin loader
-	loader := plugin.NewLoader(logger, registry)
-
-	// Create and use OpenTelemetry component loader
-	otelLoader := plugin.NewOTelComponentLoader(logger)
-	if err := otelLoader.RegisterBuiltinFactories(loader); err != nil {
-		logger.Error("Failed to register built-in OpenTelemetry components", zap.Error(err))
-		// Continue execution even if some components fail to load
+	// Load configuration
+	cfg, err := config.Load(logger)
+	if err != nil {
+		logger.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
-	// Load custom plugins
-	pluginDir := getPluginDir()
-	if err := loader.LoadCustomPlugins(pluginDir); err != nil {
-		// Check if this is a version mismatch error
-		if strings.Contains(err.Error(), "different version") {
-			logger.Warn("Some plugins were built with different versions and cannot be loaded. Please rebuild the plugins with the current version.",
-				zap.String("plugin_dir", pluginDir),
-				zap.Error(err))
-		} else {
-			logger.Error("Failed to load custom plugins",
-				zap.String("plugin_dir", pluginDir),
-				zap.Error(err))
-		}
-		// Continue execution even if some plugins fail to load
+	// Initialize managers
+	componentManager := components.NewManager(logger)
+	pluginManager := plugin.NewManager(logger, filepath.Join(cfg.PluginsDir, "bin"))
+
+	// Initialize settings
+	settings := &settings.CommandSettings{
+		ComponentManager: componentManager,
+		PluginManager:    pluginManager,
+		Logger:           logger,
 	}
 
-	// Get all factories
-	receivers, processors, exporters, extensions, connectors := loader.GetFactories()
+	// Load and register components
+	if err := initializeComponents(ctx, settings); err != nil {
+		logger.Fatal("Failed to initialize components", zap.Error(err))
+	}
 
-	// Initialize command executor with factories
-	if err := commands.Execute(commands.Settings{
-		Receivers:  receivers,
-		Processors: processors,
-		Exporters:  exporters,
-		Extensions: extensions,
-		Connectors: connectors,
-		Logger:     logger,
-	}); err != nil {
+	// Execute root command
+	if err := commands.Execute(settings); err != nil {
 		logger.Fatal("Failed to execute command", zap.Error(err))
 	}
 }
 
-// getPluginDir returns the directory containing custom plugins
-func getPluginDir() string {
-	// First check environment variable
-	if dir := os.Getenv("SREDIAG_PLUGIN_DIR"); dir != "" {
-		return dir
+// initializeComponents loads and registers all components
+func initializeComponents(ctx context.Context, settings *settings.CommandSettings) error {
+	// Load core components
+	if err := loadCoreComponents(ctx, settings.PluginManager); err != nil {
+		return fmt.Errorf("failed to load core components: %w", err)
 	}
 
-	// Then check default locations
-	candidates := []string{
-		"/etc/srediag/plugins",
-		filepath.Join(os.Getenv("HOME"), ".srediag/plugins"),
-		"./plugins",
+	// Register components
+	if err := registerPluginComponents(ctx, settings.PluginManager, settings.ComponentManager); err != nil {
+		return fmt.Errorf("failed to register components: %w", err)
 	}
 
-	for _, dir := range candidates {
-		if _, err := os.Stat(dir); err == nil {
-			return dir
+	return nil
+}
+
+// loadCoreComponents loads the core OpenTelemetry components
+func loadCoreComponents(ctx context.Context, pm *plugin.Manager) error {
+	coreComponents := []struct {
+		typ  string
+		name string
+	}{
+		{typeReceiver, "otlp"},
+		{typeProcessor, "batch"},
+		{typeExporter, "otlp"},
+		{typeExtension, "zpages"},
+	}
+
+	for _, comp := range coreComponents {
+		var typ component.Type
+		var err error
+		switch comp.typ {
+		case typeReceiver:
+			typ, err = component.NewType("receiver")
+		case typeProcessor:
+			typ, err = component.NewType("processor")
+		case typeExporter:
+			typ, err = component.NewType("exporter")
+		case typeExtension:
+			typ, err = component.NewType("extension")
+		default:
+			return fmt.Errorf("unknown component type: %s", comp.typ)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create component type %s: %w", comp.typ, err)
+		}
+
+		if err := pm.LoadPlugin(ctx, typ, comp.name); err != nil {
+			return fmt.Errorf("failed to load %s plugin %s: %w", comp.typ, comp.name, err)
 		}
 	}
 
-	// Return default location if none exists
-	return "./plugins"
+	return nil
+}
+
+// registerPluginComponents registers components from loaded plugins
+func registerPluginComponents(ctx context.Context, pm *plugin.Manager, cm *components.Manager) error {
+	// Create component types
+	var componentTypes []component.Type
+	for _, t := range []string{typeReceiver, typeProcessor, typeExporter, typeExtension} {
+		typ, err := component.NewType(t)
+		if err != nil {
+			return fmt.Errorf("failed to create component type %s: %w", t, err)
+		}
+		componentTypes = append(componentTypes, typ)
+	}
+
+	// Register factories for each type
+	for _, typ := range componentTypes {
+		factory, err := pm.GetFactory(typ)
+		if err != nil {
+			// Skip if plugin not loaded
+			continue
+		}
+
+		switch typ.String() {
+		case typeReceiver:
+			if err := cm.RegisterReceiver(factory); err != nil {
+				return fmt.Errorf("failed to register receiver: %w", err)
+			}
+		case typeProcessor:
+			if err := cm.RegisterProcessor(factory); err != nil {
+				return fmt.Errorf("failed to register processor: %w", err)
+			}
+		case typeExporter:
+			if err := cm.RegisterExporter(factory); err != nil {
+				return fmt.Errorf("failed to register exporter: %w", err)
+			}
+		case typeExtension:
+			if err := cm.RegisterExtension(factory); err != nil {
+				return fmt.Errorf("failed to register extension: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
