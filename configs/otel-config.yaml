@@ -2,15 +2,9 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: "${OTEL_GRPC_ENDPOINT:-0.0.0.0:4317}"
-        tls:
-          cert_file: "${OTEL_GRPC_TLS_CERT:-}"
-          key_file: "${OTEL_GRPC_TLS_KEY:-}"
+        endpoint: localhost:4317
       http:
-        endpoint: "${OTEL_HTTP_ENDPOINT:-0.0.0.0:4318}"
-        tls:
-          cert_file: "${OTEL_HTTP_TLS_CERT:-}"
-          key_file: "${OTEL_HTTP_TLS_KEY:-}"
+        endpoint: localhost:4318
   hostmetrics:
     collection_interval: "${HOSTMETRICS_INTERVAL:-10s}"
     scrapers:
@@ -53,15 +47,13 @@ receivers:
 
 processors:
   batch:
-    timeout: "${BATCH_TIMEOUT:-1s}"
-    send_batch_size: "${BATCH_SIZE:-1024}"
-    send_batch_max_size: "${BATCH_MAX_SIZE:-2048}"
-  
+    timeout: 1s
+    send_batch_size: 1024
   memory_limiter:
-    check_interval: "${MEMORY_CHECK_INTERVAL:-1s}"
-    limit_mib: "${MEMORY_LIMIT_MIB:-1024}"
-    spike_limit_mib: "${MEMORY_SPIKE_LIMIT_MIB:-128}"
-    
+    check_interval: 1s
+    limit_mib: 1500
+    spike_limit_mib: 512
+  
   resourcedetection:
     detectors: [env, system, docker, kubernetes]
     timeout: "${RESOURCE_DETECTION_TIMEOUT:-2s}"
@@ -81,23 +73,14 @@ processors:
       node_from_env_var: "K8S_NODE_NAME"
 
 exporters:
+  debug:
+    verbosity: detailed
   otlp:
-    endpoint: "${OTLP_ENDPOINT:-localhost:4317}"
+    endpoint: localhost:4317
     tls:
-      insecure: "${OTLP_INSECURE:-false}"
-      ca_file: "${OTLP_CA_FILE:-}"
-      cert_file: "${OTLP_CERT_FILE:-}"
-      key_file: "${OTLP_KEY_FILE:-}"
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 300s
-    sending_queue:
-      enabled: true
-      num_consumers: 10
-      queue_size: 5000
-      
+      insecure: true
+  otlphttp:
+    endpoint: http://localhost:4318
   prometheus:
     endpoint: "${PROMETHEUS_ENDPOINT:-0.0.0.0:9090}"
     namespace: "srediag"
@@ -114,7 +97,7 @@ extensions:
   pprof:
     endpoint: "${PPROF_ENDPOINT:-0.0.0.0:1777}"
   zpages:
-    endpoint: "${ZPAGES_ENDPOINT:-0.0.0.0:55679}"
+    endpoint: localhost:55679
 
 service:
   telemetry:
@@ -132,9 +115,13 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, k8sattributes, resourcedetection, batch]
-      exporters: [otlp]
+      exporters: [debug, otlp]
     metrics:
       receivers: [otlp, hostmetrics]
       processors: [memory_limiter, k8sattributes, resourcedetection, batch]
-      exporters: [otlp, prometheus] 
+      exporters: [debug, otlp, prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [debug, otlp] 
  

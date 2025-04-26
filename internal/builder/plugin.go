@@ -65,7 +65,7 @@ func (b *PluginBuilder) loadConfig() (*BuilderConfig, error) {
 }
 
 // generatePluginCode generates the Go code for a plugin
-func (b *PluginBuilder) generatePluginCode(name string, cfg PluginConfig, compType ComponentType) (string, error) {
+func (b *PluginBuilder) generatePluginCode(cfg PluginConfig, compType ComponentType) (string, error) {
 	// Extract the actual component name from the gomod path
 	parts := strings.Split(cfg.GoMod, "/")
 	componentName := parts[len(parts)-1]
@@ -172,7 +172,7 @@ func (b *PluginBuilder) BuildPlugin(name string, cfg PluginConfig, compType Comp
 	defer os.RemoveAll(tempDir)
 
 	// Generate plugin code
-	code, err := b.generatePluginCode(name, cfg, compType)
+	code, err := b.generatePluginCode(cfg, compType)
 	if err != nil {
 		return fmt.Errorf("failed to generate code: %w", err)
 	}
@@ -280,7 +280,7 @@ func (b *PluginBuilder) GenerateAll() error {
 			}
 
 			// Generate plugin code
-			code, err := b.generatePluginCode(name, cfg, compType)
+			code, err := b.generatePluginCode(cfg, compType)
 			if err != nil {
 				return fmt.Errorf("failed to generate code for %s_%s: %w", compType, name, err)
 			}

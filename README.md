@@ -120,13 +120,21 @@ For detailed architecture information, see [Architecture Documentation](docs/arc
    make build
    ```
 
-3. Create a configuration file:
+3. Configuration:
 
-   ```bash
-   cp configs/config.yaml.example configs/config.yaml
-   ```
+   The configuration files are located in the `configs` directory:
+   - `configs/srediag.yaml` - Main application configuration
+   - `configs/otel-config.yaml` - OpenTelemetry Collector configuration
 
-4. Edit the configuration file according to your needs.
+   SREDIAG will look for configuration files in the following order:
+   1. Path specified in `SREDIAG_CONFIG` environment variable
+   2. `configs/srediag.yaml` in the project directory
+   3. `srediag.yaml` in the current directory
+   4. `.srediag.yaml` in the current directory
+   5. `~/.srediag/config/srediag.yaml` in the home directory
+   6. `~/.srediag.yaml` in the home directory
+
+   You can also override the plugins directory using the `SREDIAG_PLUGIN_DIR` environment variable.
 
 ### Basic Usage
 
@@ -268,24 +276,22 @@ srediag audit config --path /etc/srediag
 To build a plugin, use the following bash command:
 
 ```bash
-go build -buildmode=plugin -o ../../bin/plugins/plugin_name.so .
+go build -buildmode=plugin -o bin/plugins/.tmp/plugin_name.so .
 ```
 
 This will create a shared object file that can be loaded by SREDIAG. Make sure to:
 
 1. Use bash shell (not PowerShell) for building plugins
-2. Place the built plugin in the `bin/plugins` directory
+2. Place the built plugin in the `bin/plugins/.tmp` directory
 3. Name the plugin file with a `.so` extension
 
 For example, to build the simple receiver plugin:
 
 ```bash
 cd plugins/examples/simplereceiver
-go build -buildmode=plugin -o ../../bin/plugins/simplereceiver.so .
+go build -buildmode=plugin -o bin/plugins/.tmp/simplereceiver.so .
 ```
 
 ### Plugin Configuration
 
-```bash
-# ... existing code ...
 ```

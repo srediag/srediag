@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
@@ -47,7 +46,7 @@ func main() {
 
 	// Initialize managers
 	componentManager := components.NewManager(logger)
-	pluginManager := plugin.NewManager(logger, filepath.Join(cfg.PluginsDir, "bin"))
+	pluginManager := plugin.NewManager(logger, cfg.PluginsDir)
 
 	// Initialize settings
 	settings := &settings.CommandSettings{
@@ -56,15 +55,26 @@ func main() {
 		Logger:           logger,
 	}
 
-	// Load and register components
-	if err := initializeComponents(ctx, settings); err != nil {
-		logger.Fatal("Failed to initialize components", zap.Error(err))
+	// Only load components if not running plugin generate command
+	if !isPluginGenerateCommand() {
+		// Load and register components
+		if err := initializeComponents(ctx, settings); err != nil {
+			logger.Fatal("Failed to initialize components", zap.Error(err))
+		}
 	}
 
 	// Execute root command
 	if err := commands.Execute(settings); err != nil {
 		logger.Fatal("Failed to execute command", zap.Error(err))
 	}
+}
+
+// isPluginGenerateCommand checks if we're running the plugin generate command
+func isPluginGenerateCommand() bool {
+	if len(os.Args) < 2 {
+		return false
+	}
+	return os.Args[1] == "plugin" && len(os.Args) > 2 && os.Args[2] == "generate"
 }
 
 // initializeComponents loads and registers all components

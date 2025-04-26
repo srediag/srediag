@@ -39,7 +39,7 @@ func (m *Manager) LoadPlugin(ctx context.Context, pluginType component.Type, nam
 	}
 
 	// Ensure plugin directory exists
-	pluginDir := filepath.Join(m.pluginsDir, pluginType.String())
+	pluginDir := filepath.Join(m.pluginsDir, pluginType.String()) + "s"
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		return fmt.Errorf("failed to create plugin directory: %w", err)
 	}

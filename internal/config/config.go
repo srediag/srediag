@@ -30,41 +30,74 @@ func DefaultConfig() *Config {
 	}
 }
 
+// tryLoadConfigFile attempts to load config from a specific file
+func tryLoadConfigFile(logger *zap.Logger, cfg *Config, path string) bool {
+	if _, err := os.Stat(path); err == nil {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			logger.Debug("Failed to read config file",
+				zap.String("path", path),
+				zap.Error(err))
+			return false
+		}
+
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			logger.Debug("Failed to parse config file",
+				zap.String("path", path),
+				zap.Error(err))
+			return false
+		}
+
+		logger.Info("Loaded configuration from file", zap.String("path", path))
+		return true
+	}
+	return false
+}
+
 // Load loads the configuration from file and environment
 func Load(logger *zap.Logger) (*Config, error) {
 	cfg := DefaultConfig()
 
-	// Get config file path from environment or use default
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "."
-	}
-	configFile := filepath.Join(homeDir, ".srediag", "config", "srediag.yaml")
+	// Try loading from environment variable first
 	if envConfig := os.Getenv("SREDIAG_CONFIG"); envConfig != "" {
-		configFile = envConfig
-	}
-
-	// Create default config directory if it doesn't exist
-	configDir := filepath.Dir(configFile)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		logger.Warn("Failed to create config directory", zap.String("path", configDir), zap.Error(err))
-	}
-
-	// Read config file if it exists
-	if _, err := os.Stat(configFile); err == nil {
-		data, err := os.ReadFile(configFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
+		if !tryLoadConfigFile(logger, cfg, envConfig) {
+			return nil, fmt.Errorf("failed to load config from SREDIAG_CONFIG=%s", envConfig)
+		}
+	} else {
+		// Try loading from default locations
+		configLocations := []string{
+			filepath.Join("configs", "srediag.yaml"), // Project configs directory
+			"srediag.yaml",                           // Current directory
+			".srediag.yaml",                          // Hidden file in current directory
 		}
 
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse config file: %w", err)
+		// Add home directory config
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			configLocations = append(configLocations,
+				filepath.Join(homeDir, ".srediag", "config", "srediag.yaml"),
+				filepath.Join(homeDir, ".srediag.yaml"),
+			)
+		}
+
+		// Try each location
+		configFound := false
+		for _, loc := range configLocations {
+			if tryLoadConfigFile(logger, cfg, loc) {
+				configFound = true
+				break
+			}
+		}
+
+		if !configFound {
+			logger.Info("No config file found in default locations, using defaults")
 		}
 	}
 
 	// Override with environment variables
 	if envPluginDir := os.Getenv("SREDIAG_PLUGIN_DIR"); envPluginDir != "" {
 		cfg.PluginsDir = envPluginDir
+		logger.Info("Using plugin directory from environment",
+			zap.String("SREDIAG_PLUGIN_DIR", envPluginDir))
 	}
 
 	// Validate and normalize paths

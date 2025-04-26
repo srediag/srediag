@@ -11,9 +11,13 @@ export GOFLAGS      := -mod=readonly
 GO_VERSION        := $(shell go version | awk '{print $$3}')
 REQUIRED_GO_MAJOR := 1.24
 
+# Get user home directory
+HOME_DIR := $(shell echo $$HOME)
+
 # Output directories
-PLUGIN_OUT_DIR := bin/plugins
-PLUGIN_TMP_DIR := $(PLUGIN_OUT_DIR)/.tmp
+PLUGIN_BASE_DIR := bin/plugins
+PLUGIN_OUT_DIR := $(PLUGIN_BASE_DIR)
+PLUGIN_TMP_DIR := $(PLUGIN_BASE_DIR)/.tmp
 
 # Get Go version and build info
 GO := go
@@ -26,20 +30,59 @@ BUILD_TIME := $(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
 BUILD_FLAGS := -trimpath \
     -ldflags="-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
-# Plugin build flags - must match main binary flags
-PLUGIN_BUILD_FLAGS := -buildmode=plugin \
-    -trimpath \
+# Plugin build flags
+PLUGIN_BUILD_FLAGS := -trimpath \
     -tags=static \
     -installsuffix netgo \
-    -ldflags="-linkmode external -extldflags '-static' -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)" \
+    -ldflags="-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)" \
     $(BUILD_FLAGS)
 
 # Binary paths
 SREDIAG_BINARY := bin/srediag
+SREDIAG_PLUGIN_BINARYS := bin/plugins/
 
-.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins update-deps verify-deps
+# Configuration paths
+CONFIG_DIR := configs
+BUILDER_CONFIG := $(CONFIG_DIR)/srediag-builder.yaml
+OTEL_CONFIG := $(CONFIG_DIR)/otel-config.yaml
+TEST_CONFIG := $(CONFIG_DIR)/test-config.yaml
+TEST_PLUGINS := $(CONFIG_DIR)/test-plugins.yaml
 
-all: check-env install-mage deps fmt lint test build
+# Environment variables
+export SREDIAG_CONFIG := $(abspath $(OTEL_CONFIG))
+export SREDIAG_PLUGIN_DIR := $(abspath $(PLUGIN_OUT_DIR))
+
+.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins update-deps verify-deps generate-plugins test-plugins
+
+# Build variables
+BINARY_NAME := srediag
+BUILD_DIR := bin
+PLUGIN_DIR := $(BUILD_DIR)/plugins
+PLUGIN_TMP_DIR := $(PLUGIN_DIR)/.tmp
+PLUGIN_OUT_DIR := $(PLUGIN_DIR)
+
+# Go environment
+GO := go
+REQUIRED_GO_MAJOR := 1.24
+GO_VERSION := $(shell $(GO) version | cut -d" " -f3)
+GOOS := $(shell go env GOOS)
+GOARCH := $(shell go env GOARCH)
+
+# Build flags
+BUILD_FLAGS := -trimpath
+PLUGIN_BUILD_FLAGS := -buildmode=plugin -trimpath
+
+# Configuration files
+BUILDER_CONFIG := configs/srediag-builder.yaml
+TEST_CONFIG := configs/test-config.yaml
+TEST_PLUGINS := configs/test-plugins.yaml
+
+# Export plugin directory for use by the binary
+export SREDIAG_PLUGIN_DIR := $(abspath $(PLUGIN_OUT_DIR))
+
+.PHONY: all check-env install-mage deps fmt lint test build clean docker install-dev-tools build-plugins update-deps verify-deps generate-plugins test-plugins
+
+all: check-env install-mage deps fmt lint test build test-plugins
 
 install-dev-tools:
 	@echo ">> Installing development tools..."
@@ -93,7 +136,7 @@ test:
 	@echo ">> Running tests…"
 	mage Test
 
-build: build-binary build-plugins
+build: build-binary generate-plugins build-plugins
 	@echo ">> Building complete..."
 
 build-binary:
@@ -107,27 +150,37 @@ build-binary:
 	GOOS=$(GOOS) \
 	$(GO) build \
 		$(BUILD_FLAGS) \
-		-o $(SREDIAG_BINARY) \
+		-o $(BUILD_DIR)/$(BINARY_NAME) \
 		./cmd/srediag
-	@echo "✓ Built collector binary at $(SREDIAG_BINARY)"
+	@echo "✓ Built collector binary at $(BUILD_DIR)/$(BINARY_NAME)"
+	@if [ ! -x "$(BUILD_DIR)/$(BINARY_NAME)" ]; then \
+		echo "Error: Failed to build collector binary"; \
+		exit 1; \
+	fi
 
-build-plugins:
-	@echo ">> Building plugins from otelcol-builder.yaml..."
+generate-plugins:
+	@echo ">> Generating plugins from $(BUILDER_CONFIG)..."
 	@echo "Using Go version: $(GO_VERSION)"
 	@echo "Architecture: $(GOARCH)"
 	@echo "OS: $(GOOS)"
 	@rm -rf $(PLUGIN_TMP_DIR)
 	@mkdir -p $(PLUGIN_OUT_DIR)
 	@mkdir -p $(PLUGIN_TMP_DIR)
-	@$(SREDIAG_BINARY) plugin generate --config otelcol-builder.yaml --output-dir $(PLUGIN_TMP_DIR)
+	@SREDIAG_CONFIG=$(TEST_CONFIG) \
+	 SREDIAG_PLUGIN_DIR=$(PLUGIN_TMP_DIR) \
+	 $(BUILD_DIR)/$(BINARY_NAME) plugin generate \
+	 --config $(BUILDER_CONFIG) \
+	 --output-dir $(PLUGIN_TMP_DIR)
+	@echo "✓ Generated plugins in $(PLUGIN_TMP_DIR)"
+
+build-plugins:
 	@echo ">> Building generated plugins..."
 	@for plugin_dir in $(PLUGIN_TMP_DIR)/*; do \
 		if [ -d "$$plugin_dir" ]; then \
 			plugin_name=$$(basename $$plugin_dir); \
 			plugin_type=$$(echo $$plugin_name | cut -d'_' -f1); \
 			component_name=$$(echo $$plugin_name | cut -d'_' -f2-); \
-			echo "Building $$component_name"; \
-			mkdir -p $(PLUGIN_OUT_DIR)/$$plugin_type; \
+			echo "Building $$plugin_type/$$component_name..."; \
 			cd "$$plugin_dir" && \
 			CGO_ENABLED=1 \
 			GOARCH=$(GOARCH) \
@@ -135,17 +188,59 @@ build-plugins:
 			$(GO) mod tidy && \
 			$(GO) build \
 				$(PLUGIN_BUILD_FLAGS) \
-				-o $(CURDIR)/$(PLUGIN_OUT_DIR)/$$plugin_type/$${component_name}.so \
+				-o ../../$$plugin_type/$$component_name \
 				.; \
+			build_status=$$?; \
+			chmod +x ../../$$plugin_type/$$component_name; \
 			cd - > /dev/null || exit 1; \
+			if [ $$build_status -eq 0 ]; then \
+				echo "✓ Successfully built $$plugin_type/$$component_name"; \
+			else \
+				echo "✗ Failed to build $$plugin_type/$$component_name"; \
+				exit 1; \
+			fi \
 		fi \
 	done
-	@echo "✓ Built plugins in $(PLUGIN_OUT_DIR)"
+	@echo "✓ All plugins built successfully in $(PLUGIN_OUT_DIR)"
+
+test-plugins: build
+	@echo ">> Testing plugins..."
+	@echo "Testing with configuration: $(TEST_CONFIG)"
+	@for plugin_dir in $(PLUGIN_OUT_DIR)/*; do \
+		if [ -d "$$plugin_dir" ]; then \
+			plugin_type=$$(basename $$plugin_dir); \
+			for plugin in $$plugin_dir/*; do \
+				if [ -f "$$plugin" ]; then \
+					plugin_name=$$(basename $$plugin); \
+					echo "Testing $$plugin_type/$$plugin_name..."; \
+					SREDIAG_CONFIG=$(TEST_CONFIG) \
+					SREDIAG_PLUGIN_DIR=$(PLUGIN_OUT_DIR) \
+					$(BUILD_DIR)/$(BINARY_NAME) plugin test \
+						--type $$plugin_type \
+						--name $$plugin_name \
+						--config $(TEST_PLUGINS) || exit 1; \
+					echo "✓ Plugin $$plugin_type/$$plugin_name tested successfully"; \
+				fi \
+			done \
+		fi \
+	done
+	@echo "✓ All plugins tested successfully"
 
 clean:
 	@echo ">> Cleaning…"
-	rm -rf bin/
+	rm -rf $(BUILD_DIR)
+	rm -rf $(PLUGIN_DIR)
 
-docker:
+# Docker targets
+docker-build:
 	@echo ">> Building Docker image…"
 	docker build -t srediag/srediag:latest .
+
+docker-run:
+	docker run -p 4317:4317 -p 4318:4318 -p 55679:55679 srediag/srediag:latest
+
+# Development helper targets
+dev: deps build run
+
+run: build
+	./$(BUILD_DIR)/$(BINARY_NAME)

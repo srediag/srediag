@@ -1,18 +1,22 @@
 # SREDIAG Configuration
-version: "v0.1.0"
+# This is the main configuration file for the SREDIAG application.
+
+# Logging configuration
+log_level: info    # Logging level (debug, info, warn, error)
+log_format: console # Log format (console, json) # Plugin builder configuration
+
+# OpenTelemetry configuration
+collector:
+  enabled: true
+  config_path: configs/otel-config.yaml
+  memory_limit_mib: 1024
+  cpu_limit_cores: 2
 
 # Service settings
 service:
   name: "srediag"
   environment: "${SREDIAG_ENV:-production}"
   port: "${SREDIAG_PORT:-8080}"
-
-# Collector settings
-collector:
-  enabled: true
-  config_path: "configs/otel-config.yaml"
-  memory_limit_mib: 1024
-  cpu_limit_cores: 2
 
 # Application logging
 logging:
