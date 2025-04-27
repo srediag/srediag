@@ -1,297 +1,132 @@
-# SREDIAG – OBSERVO Diagnostics Agent
+# SREDIAG — OBSERVO Diagnostics Agent
 
-SREDIAG is a powerful diagnostic and observability agent built on top of OpenTelemetry Collector.
-It extends the OpenTelemetry Collector's capabilities with advanced diagnostic features, providing deep insights into systems, applications, and infrastructure.
-Whether you're troubleshooting a Kubernetes cluster, analyzing cloud infrastructure, or monitoring application performance, SREDIAG combines OpenTelemetry's robust telemetry collection with specialized diagnostic tools.
+> Go-native diagnostics & observability agent • built on the OpenTelemetry Collector  
+> Maintained by **Integra SH** • Contact: <marlon@integra.sh>
 
-## Key Features
+| Status | Go | Licence |
+| :----: | :-: | :-----: |
+| ![build](https://img.shields.io/badge/build-alpha-blue) | ![go](https://img.shields.io/badge/go-1.24.x-blue) | MIT |
 
-- **OpenTelemetry Integration**
-  - Built on OpenTelemetry Collector architecture
-  - Full compatibility with OpenTelemetry protocols
-  - Support for all OpenTelemetry core components
-  - Extended collector functionality
-  - Custom processors and exporters
+---
 
-- **Advanced Diagnostics**
-  - Real‑time system analysis and troubleshooting
-  - Kubernetes cluster health diagnostics
-  - Infrastructure configuration analysis
-  - Performance bottleneck detection
-  - Root cause analysis automation
+## 1 — Project Scope
 
-- **Management Capabilities**
-  - Configuration management
-  - Resource provisioning
-  - Policy enforcement
-  - Automated remediation
-  - Change management
-  - State reconciliation
+SREDIAG is the *edge data-plane* for the OBSERVO reliability platform.  
+It starts as a **thin wrapper** around the upstream OpenTelemetry Collector and will grow—incrementally—into a fully-featured MSP-grade agent with hot-swappable plugins, volume-aware deduplication, CMDB drift reporting, and multi-tenant controls.
 
-- **Multi‑Platform Support**
-  - Kubernetes environments
-  - Oracle Cloud Infrastructure (OCI)
-  - AWS environments
-  - Azure platforms
-  - Bare‑metal servers
-  - Virtual machines
+The repository is intentionally **early-stage**; most advanced features are *design-complete* but **not implemented yet**.  
+Use it **only for experimentation** until the first beta tag (`2025.07.0`).
 
-- **Configuration Analysis**
-  - Infrastructure as Code validation
-  - Security compliance checking
-  - Best practices enforcement
-  - Configuration drift detection
-  - Cost optimization recommendations
+---
 
-- **Extended Plugin System**
-  - Diagnostic plugins
-  - Analysis plugins
-  - Integration plugins
-  - Management plugins
-  - Custom plugin development
-  - Plugin marketplace support
+## 2 — Feature Matrix
 
-- **CLI Tools**
-  - Interactive diagnostics
-  - System analysis
-  - Performance profiling
-  - Configuration management
-  - Resource optimization
-  - State management
+| Area | Implemented (`main`) | In Development | Planned / Backlog |
+| :-- | :-- | :-- | :-- |
+| Collector core bootstrap | ✅ Static build via `otelcol-builder.yaml` | — | — |
+| **Plugin framework** | ✅ MVP hot-loader (`internal/plugin/…`) | 🔴 IPC stabilisation · seccomp profiles | — |
+| Diagnostics CLI | ✅ Skeleton commands in `cmd/` | 🟠 System / Perf / Security modules (TODOs) | — |
+| Receivers / Processors / Exporters | 🚧 Upstream OTLP + Nop receivers | 🟠 Journald & System receivers · Batch/MemLimiter processors | ⏳ Vector-hash dedup · ClickHouse exporter |
+| Dedup & Compression engine | — | — | ⏳ Phase 2 roadmap |
+| CMDB drift & ITIL mapping | — | — | ⏳ Phase 3 roadmap |
+| Multi-tenancy (quotas, SPIFFE) | — | — | ⚪ Phase 4 roadmap |
+| K8s Operator & side-car injector | — | — | ⚪ Phase 5 roadmap |
 
-## Architecture
+Legend: **✅ shipped** • **🔴 active** • **🟠 queued** • **⏳ designed** • **⚪ backlog**
 
-SREDIAG extends the OpenTelemetry Collector architecture with additional capabilities:
+See `docs/specification.md` for the full technical roadmap.
 
-1. **OpenTelemetry Core**
-   - Full OpenTelemetry Collector integration
-   - Standard receivers, processors, and exporters
-   - Native protocol support
-   - Built-in scalability and reliability
+---
 
-2. **Diagnostic Engine**
-   - Advanced analysis capabilities
-   - Real-time troubleshooting
-   - Custom diagnostic processors
-   - Extended metrics collection
+## 3 — Repository Layout
 
-3. **Management Engine**
-   - Configuration management
-   - State reconciliation
-   - Change application
-   - Policy enforcement
+```ascii
 
-4. **Plugin System**
-   - Diagnostic plugins
-   - Analysis plugins
-   - Integration plugins
-   - Management plugins
+srediag/
+├ cmd/                 # CLI entry points (Cobra)
+├ internal/
+│ ├ core/              # Version, config & logging helpers
+│ ├ plugin/            # Hot-swap manager, shmipc stubs
+│ └ diagnostic/        # TODO: system / perf / security commands
+├ configs/             # Example collector configs + builder spec
+├ docs/                # Product spec & appendices
+├ magefiles/           # CI helper targets
+└ Dockerfile           # Distroless build
 
-5. **Security Layer**
-   - Authentication and authorization
-   - Data encryption
-   - Compliance monitoring
-   - Access control
+```
 
-For detailed architecture information, see [Architecture Documentation](docs/architecture/overview.md).
+---
 
-## Getting Started
-
-### Prerequisites
-
-- Go 1.24 or higher
-- Make
-- Git
-- kubectl (for Kubernetes features)
-- Cloud provider CLI tools (optional)
-
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/srediag/srediag.git
-   cd srediag
-   ```
-
-2. Build the agent:
-
-   ```bash
-   make build
-   ```
-
-3. Configuration:
-
-   The configuration files are located in the `configs` directory:
-   - `configs/srediag.yaml` - Main application configuration
-   - `configs/otel-config.yaml` - OpenTelemetry Collector configuration
-
-   SREDIAG will look for configuration files in the following order:
-   1. Path specified in `SREDIAG_CONFIG` environment variable
-   2. `configs/srediag.yaml` in the project directory
-   3. `srediag.yaml` in the current directory
-   4. `.srediag.yaml` in the current directory
-   5. `~/.srediag/config/srediag.yaml` in the home directory
-   6. `~/.srediag.yaml` in the home directory
-
-   You can also override the plugins directory using the `SREDIAG_PLUGIN_DIR` environment variable.
-
-### Basic Usage
-
-1. Run system diagnostics:
-
-   ```bash
-   srediag diagnose system
-   ```
-
-2. Analyze Kubernetes cluster:
-
-   ```bash
-   srediag diagnose kubernetes --cluster my-cluster
-   ```
-
-3. Apply configuration changes:
-
-   ```bash
-   srediag apply config --path /path/to/config
-   ```
-
-4. Start monitoring:
-
-   ```bash
-   srediag monitor --target system|kubernetes|cloud
-   ```
-
-For detailed usage instructions, see [CLI Documentation](docs/cli/README.md).
-
-## Documentation
-
-- [Getting Started](docs/getting-started/README.md)
-- [Architecture](docs/architecture/README.md)
-- [Configuration](docs/configuration/README.md)
-- [Plugin System](docs/plugins/README.md)
-- [CLI Reference](docs/cli/README.md)
-- [Cloud Integration](docs/cloud/README.md)
-- [API Reference](docs/reference/api.md)
-- [Security](docs/architecture/security.md)
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## License
-
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- [Documentation](docs/README.md)
-- [Issue Tracker](https://github.com/srediag/srediag/issues)
-- [Discussions](https://github.com/srediag/srediag/discussions)
-
-## Roadmap
-
-See our [TODO List](docs/TODO.md) for planned features and improvements.
-
-## CLI Tools
-
-SREDIAG provides powerful diagnostic CLI tools for interactive troubleshooting and analysis:
-
-### System Diagnostics
+## 4 — Quick Start
 
 ```bash
-# Basic system diagnostics
-srediag diagnose system
+# 1. Clone & build (requires Go ≥ 1.24)
+git clone https://github.com/srediag/srediag
+cd srediag
+make build            # wraps 'mage build'
 
-# Specific resource analysis
-srediag diagnose system --resource cpu
-srediag diagnose system --resource memory
-srediag diagnose system --resource disk
+# 2. Run a minimal collector
+./bin/srediag --config configs/otel-config.yaml
 
-# Real-time monitoring
-srediag monitor system --interval 5s
-
-# Process analysis
-srediag analyze process --pid 1234
+# 3. Hot-load a sample plugin (once built)
+curl -X POST --unix-socket /var/run/srediag.sock \
+     -F file=@plugins/example.so http://plugin.load
 ```
 
-### Kubernetes Diagnostics
+### Container image
 
 ```bash
-# Cluster health check
-srediag diagnose kubernetes --cluster my-cluster
-
-# Resource analysis
-srediag analyze kubernetes resources --namespace default
-srediag analyze kubernetes deployments --show-events
-
-# Configuration audit
-srediag audit kubernetes --namespace production
+# Build a local multi-arch image
+make docker           # docker buildx bakes distroless image
 ```
 
-### Performance Analysis
+---
+
+## 5 — Development Status & Roadmap
+
+| Milestone | Target | ETA | Issue Board |
+| :-- | :-- | :-- | :-- |
+| **M0** — Baseline skeleton | Static OTel collector + plugin loader | **Done (2025-04)** | — |
+| **M1** — IPC & Mem Guard | Stabilise shmipc-go, introduce `mem_guard.go` | **Jun 2025** | [link] |
+| **M2** — Dedup & Compression | Vector-hash processor + tiered ZSTD/LZ4 | **Jul 2025** | [link] |
+| **M3** — CMDB & Drift | Fingerprint lib, OTLP drift events | **Aug 2025** | [link] |
+| **Beta 1** | Feature-freeze, Helm chart | **Sep 2025** | [link] |
+
+Roadmap is tracked in **GitHub Projects › Milestones**.
+
+---
+
+## 6 — Building & Testing
 
 ```bash
-# CPU profiling
-srediag profile cpu --duration 30s --output cpu.prof
-
-# Memory analysis
-srediag analyze memory --threshold 90
-
-# Goroutine inspection
-srediag debug goroutines --trace
-
-# Bottleneck detection
-srediag analyze bottlenecks --service my-service
+# Lint, unit tests, SBOM & signed artifacts
+make ci          # mage lint test sbom sign
 ```
 
-### Security Diagnostics
+* `golangci-lint` gates every PR  
+* Unit coverage must stay **≥ 80 %**  
+* Integration tests run in Kind (`tests/integration`)
 
-```bash
-# Vulnerability scanning
-srediag scan vulnerabilities --severity high
+---
 
-# Compliance checking
-srediag check compliance --standard pci-dss
+## 7 — Contributing
 
-# Configuration audit
-srediag audit config --path /etc/srediag
-```
+1. **Fork** the repo & create a branch.  
+2. Follow the **“Style & Commit”** guide in `CONTRIBUTING.md`.  
+3. Run `make ci`; ensure all checks pass.  
+4. Open a PR — A maintainer will review within 48 h.
 
-### Analysis Features
+We gladly accept **issue reports**, **feature proposals**, and **code PRs**—especially new plugins built with `srediag-plugin-sdk`.
 
-- Real-time metric collection and analysis
-- Automatic correlation detection
-- Root cause analysis
-- Anomaly detection
-- Performance bottleneck identification
-- Security vulnerability assessment
-- Configuration validation
-- Resource optimization recommendations
+---
 
-## Plugin Development
+## 8 — License
 
-### Building Plugins
+MIT.  See [`LICENSE`](LICENSE).
 
-To build a plugin, use the following bash command:
+---
 
-```bash
-go build -buildmode=plugin -o bin/plugins/.tmp/plugin_name.so .
-```
+## 9 — Contact
 
-This will create a shared object file that can be loaded by SREDIAG. Make sure to:
-
-1. Use bash shell (not PowerShell) for building plugins
-2. Place the built plugin in the `bin/plugins/.tmp` directory
-3. Name the plugin file with a `.so` extension
-
-For example, to build the simple receiver plugin:
-
-```bash
-cd plugins/examples/simplereceiver
-go build -buildmode=plugin -o bin/plugins/.tmp/simplereceiver.so .
-```
-
-### Plugin Configuration
-
-```
+*Mailing list*: <srediag-dev@integra.sh> •  
+*Maintainer*: **Marlon Costa** (<marlon@integra.sh>)

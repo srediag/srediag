@@ -13,6 +13,7 @@ linters:
     - third_party$
     - builtin$
     - examples$
+    - upstream$
 formatters:
   enable:
   - gofmt
@@ -29,3 +30,4 @@ formatters:
     - third_party$
     - builtin$
     - examples$
+    - upstream$

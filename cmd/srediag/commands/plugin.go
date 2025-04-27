@@ -2,79 +2,108 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 
-	"github.com/srediag/srediag/internal/builder"
+	"github.com/srediag/srediag/internal/core"
+	"github.com/srediag/srediag/internal/plugin"
 )
 
-// NewPluginCmd creates a new command for plugin management
-func NewPluginCmd(opts *Options) *cobra.Command {
+// newPluginCmd creates a new command for managing plugins
+func newPluginCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plugin",
-		Short: "Plugin management commands",
-		Long: `Commands for managing SREDIAG plugins including code generation
-and plugin lifecycle management.`,
+		Short: "Manage plugins",
+		Long:  `The plugin command allows you to list, enable, disable, and get information about plugins.`,
 	}
 
-	cmd.AddCommand(NewPluginGenerateCmd(opts))
+	cmd.AddCommand(
+		newPluginListCmd(ctx),
+		newPluginInfoCmd(ctx),
+		newPluginEnableCmd(ctx),
+		newPluginDisableCmd(ctx),
+	)
+
 	return cmd
 }
 
-// NewPluginGenerateCmd creates a new command for generating plugin code
-func NewPluginGenerateCmd(opts *Options) *cobra.Command {
-	var (
-		configPath string
-		outputDir  string
-	)
+func getPluginManager(ctx *core.AppContext) *plugin.PluginManager {
+	return plugin.NewManager(ctx.GetLogger(), ctx.GetConfig().PluginsDir)
+}
 
-	cmd := &cobra.Command{
-		Use:   "generate",
-		Short: "Generate plugin code from otelcol-builder.yaml",
-		Long: `Generate plugin code based on the configuration specified in
-otelcol-builder.yaml. The generated code will be written to the
-specified output directory.
-
-The generator creates:
-- Plugin interface implementations
-- Component factories
-- Registration code`,
+func newPluginListCmd(ctx *core.AppContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all available plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Create plugin builder
-			pluginBuilder := builder.NewPluginBuilder(
-				opts.Settings.GetLogger(),
-				configPath,
-				outputDir,
-			)
-
-			// Generate plugin code
-			if err := pluginBuilder.GenerateAll(); err != nil {
-				return fmt.Errorf("failed to generate plugin code: %w", err)
+			mgr := getPluginManager(ctx)
+			plugins := mgr.List()
+			for _, p := range plugins {
+				fmt.Printf("%s\t%s\t%s\n", p.Name, p.Type, p.Version)
 			}
-
-			opts.Settings.GetLogger().Info("Plugin code generation completed",
-				zap.String("config", configPath),
-				zap.String("output_dir", outputDir),
-			)
 			return nil
 		},
 	}
+}
 
-	// Add flags
-	cmd.Flags().StringVar(&configPath, "config", "otelcol-builder.yaml",
-		"Path to the OpenTelemetry Collector builder configuration file")
-	cmd.Flags().StringVar(&outputDir, "output-dir", "",
-		"Output directory for the generated plugin code")
-
-	// Mark output-dir as required
-	if err := cmd.MarkFlagRequired("output-dir"); err != nil {
-		opts.Settings.GetLogger().Error("Failed to mark flag as required",
-			zap.String("flag", "output-dir"),
-			zap.Error(err),
-		)
+func newPluginInfoCmd(ctx *core.AppContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "info [name]",
+		Short: "Show information about a plugin",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mgr := getPluginManager(ctx)
+			inst, ok := mgr.Get(args[0])
+			if !ok {
+				return fmt.Errorf("plugin '%s' not found", args[0])
+			}
+			// Try to get metadata from the instance
+			type metaGetter interface{ Metadata() plugin.PluginMetadata }
+			if mg, ok := inst.(metaGetter); ok {
+				meta := mg.Metadata()
+				fmt.Printf("Name: %s\nType: %s\nVersion: %s\nDescription: %s\nCapabilities: %v\nSHA256: %s\nSignature: %s\n",
+					meta.Name, meta.Type, meta.Version, meta.Description, meta.Capabilities, meta.SHA256, meta.Signature)
+				return nil
+			}
+			// fallback: print type info
+			fmt.Printf("Plugin '%s' loaded.\n", args[0])
+			return nil
+		},
 	}
+}
 
-	return cmd
+func newPluginEnableCmd(ctx *core.AppContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "enable [type] [name]",
+		Short: "Enable a plugin",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mgr := getPluginManager(ctx)
+			pluginType := core.ComponentType(args[0])
+			name := args[1]
+			if err := mgr.Load(context.Background(), pluginType, name); err != nil {
+				return fmt.Errorf("failed to enable plugin: %w", err)
+			}
+			fmt.Printf("Plugin '%s' enabled.\n", name)
+			return nil
+		},
+	}
+}
+
+func newPluginDisableCmd(ctx *core.AppContext) *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable [name]",
+		Short: "Disable a plugin",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mgr := getPluginManager(ctx)
+			if err := mgr.Unload(context.Background(), args[0]); err != nil {
+				return fmt.Errorf("failed to disable plugin: %w", err)
+			}
+			fmt.Printf("Plugin '%s' disabled.\n", args[0])
+			return nil
+		},
+	}
 }

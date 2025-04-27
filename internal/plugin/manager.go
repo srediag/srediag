@@ -1,130 +1,325 @@
+// Package plugin provides plugin management functionality
 package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"time"
 
+	"github.com/cloudwego/shmipc-go"
 	"go.opentelemetry.io/collector/component"
-	"go.uber.org/zap"
+
+	"github.com/srediag/srediag/internal/core"
 )
 
-// Manager handles plugin lifecycle and communication
-type Manager struct {
-	logger     *zap.Logger
-	pluginsDir string
-	plugins    map[component.Type]*IPCPlugin
-	mu         sync.RWMutex
+// defaultPluginDir is the default directory for plugin socket files
+const defaultPluginDir = "/tmp/srediag/plugins"
+
+// manager implements the PluginManager interface
+type PluginManager struct {
+	logger    *core.Logger
+	pluginDir string
+	plugins   map[string]*pluginInstance
+	mu        sync.RWMutex
 }
 
 // NewManager creates a new plugin manager
-func NewManager(logger *zap.Logger, pluginsDir string) *Manager {
-	return &Manager{
-		logger:     logger,
-		pluginsDir: pluginsDir,
-		plugins:    make(map[component.Type]*IPCPlugin),
+func NewManager(logger *core.Logger, pluginDir string) *PluginManager {
+	if pluginDir == "" {
+		pluginDir = defaultPluginDir
+	}
+
+	return &PluginManager{
+		logger:    logger,
+		pluginDir: pluginDir,
+		plugins:   make(map[string]*pluginInstance),
 	}
 }
 
-// LoadPlugin loads and starts a plugin
-func (m *Manager) LoadPlugin(ctx context.Context, pluginType component.Type, name string) error {
+// Load initializes a plugin of the specified type
+func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if plugin is already loaded
-	if _, exists := m.plugins[pluginType]; exists {
-		return fmt.Errorf("plugin type %s already loaded", pluginType)
+	if _, exists := m.plugins[name]; exists {
+		return fmt.Errorf("plugin already loaded")
 	}
 
-	// Ensure plugin directory exists
-	pluginDir := filepath.Join(m.pluginsDir, pluginType.String()) + "s"
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		return fmt.Errorf("failed to create plugin directory: %w", err)
+	pluginPath := filepath.Join(m.pluginDir, string(pluginType)+"s", name)
+	if _, err := os.Stat(pluginPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("plugin not found")
+		}
+		return fmt.Errorf("failed to check plugin: %w", err)
 	}
 
-	// Construct plugin path
-	pluginPath := filepath.Join(pluginDir, name)
-	if _, err := os.Stat(pluginPath); os.IsNotExist(err) {
-		return fmt.Errorf("plugin not found: %s", pluginPath)
+	shmPath := fmt.Sprintf("/tmp/srediag-%s-%s.ipc", pluginType, name)
+	conf := shmipc.DefaultSessionManagerConfig()
+	if runtime.GOOS == "darwin" {
+		conf.ShareMemoryPathPrefix = "/tmp/srediag-plugin-ipc"
+		conf.QueuePath = "/tmp/srediag-plugin-ipc_queue"
+	} else {
+		conf.ShareMemoryPathPrefix = "/dev/shm/srediag-plugin-ipc"
 	}
+	conf.Network = "unix"
+	conf.Address = shmPath
 
-	// Create new plugin instance
-	plugin, err := NewIPCPlugin(ctx, pluginPath, pluginType)
+	sessionManager, err := shmipc.NewSessionManager(conf)
 	if err != nil {
-		return fmt.Errorf("failed to create plugin: %w", err)
+		return fmt.Errorf("failed to create session manager: %w", err)
 	}
 
-	// Store plugin
-	m.plugins[pluginType] = plugin
-	m.logger.Info("Loaded plugin",
-		zap.String("type", pluginType.String()),
-		zap.String("name", name),
-		zap.String("path", pluginPath))
+	// Start the plugin process, passing the ipc address as argumento
+	cmd := exec.Command(pluginPath, "--ipc", shmPath)
+	if err := cmd.Start(); err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to start plugin: %w", err)
+	}
+
+	// Obtain a stream from the session manager for comunicação.
+	stream, err := sessionManager.GetStream()
+	if err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to get stream: %w", err)
+	}
+	// Após uso, o stream será devolvido automaticamente pelo sessionManager, portanto não chamamos PutBack aqui.
+
+	// Prepare and send the initialization request
+	initReq := IPCRequest{Method: "Initialize", Params: json.RawMessage(`{}`)}
+	reqData, err := json.Marshal(initReq)
+	if err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to marshal initialization request: %w", err)
+	}
+
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to write initialization request: %w", err)
+	}
+
+	// Flush the buffer to send the data to the plugin.
+	if err := stream.Flush(true); err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to flush stream: %w", err)
+	}
+
+	// Read the response from the plugin.
+	reader := stream.BufferReader()
+	// Note: ajuste o tamanho conforme o protocolo definido com o plugin.
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("failed to read initialization response: %w", err)
+	}
+
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		sessionManager.Close()
+		return fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		sessionManager.Close()
+		return fmt.Errorf("plugin initialization error: %s", resp.Error)
+	}
+
+	// Armazena a instância do plugin junto com o session manager ativo.
+	m.plugins[name] = &pluginInstance{
+		metadata: PluginMetadata{Name: name, Type: pluginType},
+		ch:       sessionManager,
+		cmd:      cmd,
+	}
 
 	return nil
 }
 
-// GetFactory retrieves a component factory from a plugin
-func (m *Manager) GetFactory(pluginType component.Type) (component.Factory, error) {
+// Get returns a loaded plugin instance
+func (m *PluginManager) Get(name string) (IPluginInstance, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	plugin, exists := m.plugins[pluginType]
+	plugin, exists := m.plugins[name]
 	if !exists {
-		return nil, fmt.Errorf("plugin type %s not loaded", pluginType)
+		return nil, false
 	}
 
-	// Get factory type
-	typeResp, err := plugin.Send("type", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get factory type: %w", err)
-	}
-
-	// Get default config
-	configResp, err := plugin.Send("config", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get default config: %w", err)
-	}
-
-	// Create proxy factory
-	return &proxyFactory{
-		plugin:        plugin,
-		factoryType:   typeResp.Data.(component.Type),
-		defaultConfig: configResp.Data.(component.Config),
-	}, nil
+	return &clientInstance{
+		metadata: plugin.metadata,
+		ch:       plugin.ch,
+	}, true
 }
 
-// Close closes all plugins
-func (m *Manager) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// List returns metadata for all loaded plugins
+func (m *PluginManager) List() []PluginMetadata {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	var errs []error
-	for _, plugin := range m.plugins {
-		if err := plugin.Close(); err != nil {
-			errs = append(errs, err)
+	list := make([]PluginMetadata, 0, len(m.plugins))
+	for _, p := range m.plugins {
+		list = append(list, p.metadata)
+	}
+	return list
+}
+
+// CheckHealth performs health checks on all plugins
+func (m *PluginManager) CheckHealth(ctx context.Context) map[string]*PluginHealth {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	results := make(map[string]*PluginHealth)
+	for name := range m.plugins {
+		// Implement health check logic using shmipc-go
+		results[name] = &PluginHealth{
+			Status:    "unknown",
+			LastCheck: time.Now(),
+			Error:     "",
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to close plugins: %v", errs)
+	return results
+}
+
+// clientInstance implements the Instance interface for a remote plugin
+type clientInstance struct {
+	metadata PluginMetadata
+	ch       *shmipc.SessionManager
+}
+
+func (i *clientInstance) Initialize(ctx context.Context, metadata PluginMetadata) error {
+	if i.ch == nil {
+		return fmt.Errorf("plugin session manager not initialized")
+	}
+	stream, err := i.ch.GetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get stream: %w", err)
+	}
+	defer i.ch.PutBack(stream)
+
+	params, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+	initReq := IPCRequest{Method: "Initialize", Params: params}
+	reqData, err := json.Marshal(initReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+	if err := stream.Flush(true); err != nil {
+		return fmt.Errorf("failed to flush stream: %w", err)
+	}
+	reader := stream.BufferReader()
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("plugin initialization error: %s", resp.Error)
 	}
 	return nil
 }
 
-// proxyFactory implements component.Factory interface
-type proxyFactory struct {
-	plugin        *IPCPlugin
-	factoryType   component.Type
-	defaultConfig component.Config
+func (i *clientInstance) Start(ctx context.Context) error {
+	if i.ch == nil {
+		return fmt.Errorf("plugin session manager not initialized")
+	}
+	stream, err := i.ch.GetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get stream: %w", err)
+	}
+	defer i.ch.PutBack(stream)
+
+	initReq := IPCRequest{Method: "Start", Params: json.RawMessage(`{}`)}
+	reqData, err := json.Marshal(initReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+	if err := stream.Flush(true); err != nil {
+		return fmt.Errorf("failed to flush stream: %w", err)
+	}
+	reader := stream.BufferReader()
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("plugin start error: %s", resp.Error)
+	}
+	return nil
 }
 
-func (f *proxyFactory) Type() component.Type {
-	return f.factoryType
+func (i *clientInstance) Stop(ctx context.Context) error {
+	// Implement stop logic using shmipc-go
+	return nil
 }
 
-func (f *proxyFactory) CreateDefaultConfig() component.Config {
-	return f.defaultConfig
+func (i *clientInstance) HealthCheck(ctx context.Context) (*PluginHealth, error) {
+	// Implement health check logic using shmipc-go
+	return nil, nil
+}
+
+func (i *clientInstance) Factory() (component.Factory, error) {
+	// Implement factory logic using shmipc-go
+	return nil, nil
+}
+
+// GetFactory returns a factory for the given component type
+func (m *PluginManager) GetFactory(typ component.Type) (component.Factory, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Find plugin with matching type
+	for _, plugin := range m.plugins {
+		if string(plugin.metadata.Type) == typ.String() {
+			instance := &clientInstance{
+				metadata: plugin.metadata,
+			}
+			return instance.Factory()
+		}
+	}
+
+	return nil, fmt.Errorf("no factory found for type %s", typ)
+}
+
+func (m *PluginManager) Unload(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	plugin, exists := m.plugins[name]
+	if !exists {
+		return fmt.Errorf("plugin not found")
+	}
+
+	plugin.ch.Close()
+	if plugin.cmd != nil && plugin.cmd.Process != nil {
+		err := plugin.cmd.Process.Kill() // Best effort
+		if err != nil {
+			m.logger.Warn("Failed to kill plugin process", core.ZapString("name", name), core.ZapError(err))
+		}
+	}
+
+	delete(m.plugins, name)
+
+	return nil
 }
