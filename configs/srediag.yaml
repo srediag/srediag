@@ -2,26 +2,74 @@
 # This is the main configuration file for the SREDIAG application.
 
 # Logging configuration
-log_level: info    # Logging level (debug, info, warn, error)
-log_format: console # Log format (console, json) # Plugin builder configuration
-
-# OpenTelemetry configuration
-collector:
-  enabled: true
-  config_path: configs/otel-config.yaml
-  memory_limit_mib: 1024
-  cpu_limit_cores: 2
+logging:
+  level: info
+  format: console
 
 # Service settings
 service:
-  name: "srediag"
-  environment: "${SREDIAG_ENV:-production}"
-  port: "${SREDIAG_PORT:-8080}"
+  enabled: true
+  name: srediag
+  environment: production
+  port: 8080
+  config_path: configs/srediag-service.yaml
+  memory_limit_mib: 1024
 
-# Application logging
-logging:
-  level: "${LOG_LEVEL:-info}"
-  format: "${LOG_FORMAT:-json}"
-  file:
-    enabled: "${LOG_FILE_ENABLED:-false}"
-    path: "${LOG_FILE_PATH:-/var/log/srediag/srediag.log}"
+plugin:
+  dir: configs/plugins.d
+  exec_dir: ./bin/plugins
+  # Per-plugin config YAMLs are in configs/plugins.d/
+  enabled:
+    - receiver/nopreceiver@service
+    - receiver/otlpreceiver@service
+    - processor/batchprocessor@service
+    - processor/memorylimiterprocessor@service
+    - exporter/debugexporter@service
+    - exporter/otlpexporter@service
+    - extension/zpagesextension@service
+    - extension/healthcheckextension@service
+    - diag/systemsnapshot@cli
+    - diag/perfprofiler@cli
+    - diag/cisbaseline@cli
+  # Add more plugins as needed for your use case
+  # Per-plugin config can be placed in plugins.d/<name>.yaml
+
+diagnose:
+  config_path: configs/srediag-diagnose.yaml
+
+# security section can be added as needed for tests
+security:
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    min_version: "TLS1.3"
+    verify_client: false
+  auth:
+    type: none
+    jwt:
+      secret: ""
+      lifetime: ""
+    oauth2:
+      issuer: ""
+      client_id: ""
+      client_secret: ""
+      scopes: []
+  rbac:
+    enabled: false
+    default_role: viewer
+    roles: {}
+  quotas:
+    spans_per_second: 10000
+    logs_mib_per_min: 100
+  rate_limit:
+    enabled: false
+    rps: 100
+    burst: 200
+  runtime:
+    seccomp_profile: ""
+    apparmor_profile: ""
+    read_only_rootfs: false
+    mem_guard_mib: 128
+    cpu_guard_pct: 80

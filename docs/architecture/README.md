@@ -173,4 +173,4 @@ Each subsystem is described in detail within its dedicated architectural documen
 
 ## 6 · Document Governance
 
-- Documented under the MIT License.  
+- Documented under the Apache 2.0 License.  

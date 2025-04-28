@@ -1,5 +1,21 @@
 # SREDIAG CLI Overview
 
+| YAML Key                | Env Var                        | CLI Flag                |
+|-------------------------|--------------------------------|-------------------------|
+| `srediag.config`        | `SREDIAG_CONFIG`               | `--config`              |
+| `build.config`          | `SREDIAG_BUILD_CONFIG`         | `--build-config`        |
+| `build.output_dir`      | `SREDIAG_BUILD_OUTPUT_DIR`     | `--output-dir`          |
+| `plugins.dir`           | `SREDIAG_PLUGINS_DIR`          | `--plugins-dir`         |
+| `plugins.exec_dir`      | `SREDIAG_PLUGINS_EXEC_DIR`     | `--exec-dir`            |
+| `collector.config_path` | `SREDIAG_COLLECTOR_CONFIG_PATH`| `--service-yaml`        |
+| `diagnostics.defaults.output_format` | `SREDIAG_DIAG_OUTPUT_FORMAT` | `--output` / `--format` |
+| `diagnostics.defaults.timeout`       | `SREDIAG_DIAG_TIMEOUT`       | `--timeout`             |
+
+> **Parameter Naming and Precedence:**
+>
+> - `--config`/`SREDIAG_CONFIG` is **only** for the main SREDIAG config. Subsystem configs (build, plugin, service, diagnostics) use their own unique flags and env vars as shown above.
+> - **Precedence:** CLI flags > Env vars > YAML config > Built-in defaults
+
 SREDIAG’s command-line interface unifies all agent operations—building artifacts, running the long-lived service, managing plugins, performing security checks, and on-demand diagnostics—under a single `srediag` binary.
 
 Commands are organized into five groups, each with its own detailed guide:

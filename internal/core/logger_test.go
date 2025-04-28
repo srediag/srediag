@@ -1,3 +1,22 @@
+// Package core provides foundational types and utilities for the SREDIAG system.
+//
+// This file contains unit tests for the Logger type, ensuring correct configuration, output, and integration with zap.
+// The tests validate logger creation, level parsing, component scoping, and output formatting for robust diagnostics and production use.
+//
+// Usage:
+//   - Run with `go test ./internal/core` to validate logger behavior.
+//   - Use as a reference for writing new logger-related tests.
+//
+// Best Practices:
+//   - Cover all logger configuration options and output formats.
+//   - Use testify/require for clear assertions and error handling.
+//
+// TODO:
+//   - Add tests for dynamic log level changes and error output paths.
+//   - Add tests for feature gate integration and OpenTelemetry log export.
+//
+// Redundancy/Refactor:
+//   - No redundancy; these are canonical logger tests for SREDIAG.
 package core
 
 import (
@@ -11,6 +30,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TestNewLogger validates logger creation with various configurations.
+//
+// Usage:
+//   - Ensures that default, valid, and invalid logger configs are handled correctly.
+//   - Checks that errors are returned for invalid output paths.
 func TestNewLogger(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -52,6 +76,11 @@ func TestNewLogger(t *testing.T) {
 	}
 }
 
+// TestLogger_Levels validates the parseLevel function for all supported log levels.
+//
+// Usage:
+//   - Ensures that string log levels map to the correct zapcore.Level.
+//   - Checks that invalid levels default to info.
 func TestLogger_Levels(t *testing.T) {
 	tests := []struct {
 		level string
@@ -76,6 +105,10 @@ func TestLogger_Levels(t *testing.T) {
 	}
 }
 
+// TestLogger_WithComponent validates the WithComponent method for logger scoping.
+//
+// Usage:
+//   - Ensures that logs from a component logger include the correct component field.
 func TestLogger_WithComponent(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -103,6 +136,10 @@ func TestLogger_WithComponent(t *testing.T) {
 	assert.Equal(t, "test message", output["msg"])
 }
 
+// TestLogger_OutputFormats validates logger output for both JSON and console formats.
+//
+// Usage:
+//   - Ensures that log output matches the expected format and contains the correct message.
 func TestLogger_OutputFormats(t *testing.T) {
 	tests := []struct {
 		name   string

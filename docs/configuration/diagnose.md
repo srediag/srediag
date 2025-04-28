@@ -22,9 +22,9 @@ Diagnostics configurations are managed through:
 
 | Scope        | Path                                          | Description                                             |
 |--------------|-----------------------------------------------|---------------------------------------------------------|
-| **System**   | `/etc/srediag/diagnostics.yaml`               | System-wide diagnostic default configurations           |
-| **User**     | `$HOME/.config/srediag/diagnostics.yaml`      | User-specific overrides for diagnostic runs             |
-| **Plugins**  | `/etc/srediag/plugins.d/<plugin>.yaml`        | Plugin-specific diagnostic settings (merged at runtime) |
+| **System**   | `/etc/srediag/srediag-diagnose.yaml`               | System-wide diagnostic default configurations           |
+| **User**     | `$HOME/.config/srediag/srediag-diagnose.yaml`      | User-specific overrides for diagnostic runs             |
+| **Plugins**  | `configs/plugins.d/<plugin>.yaml`        | Plugin-specific diagnostic settings (merged at runtime) |
 
 Configurations follow the standard YAML hierarchy and support overrides via CLI flags or environment variables (`SREDIAG_DIAG_*`).
 
@@ -179,4 +179,31 @@ Common diagnostic runtime troubleshooting steps:
 
 ## 10 · Governance & Revision Tracking
 
-- Maintained under MIT License.
+- Maintained under Apache 2.0 License.
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--diag-service-yaml <file>` flag (diagnostics config)
+2. `SREDIAG_DIAGNOSTICS_CONFIG_PATH` env var (diagnostics config)
+3. `/etc/srediag/srediag-diagnose.yaml`
+4. `$HOME/.config/srediag/srediag-diagnose.yaml`
+5. `./config/srediag-diagnose.yaml`
+6. `./srediag-diagnose.yaml`
+
+---
+
+| YAML Key                              | Env Var                        | CLI Flag                |
+|---------------------------------------|--------------------------------|-------------------------|
+| `diagnostics.defaults.output_format`  | `SREDIAG_DIAG_OUTPUT_FORMAT`   | `--output` / `--format` |
+| `diagnostics.defaults.timeout`        | `SREDIAG_DIAG_TIMEOUT`         | `--timeout`             |
+| `diagnostics.config_path`             | `SREDIAG_DIAGNOSTICS_CONFIG_PATH` | `--diag-service-yaml` |
+| `srediag.config`                      | `SREDIAG_CONFIG`               | `--config`              |
+
+> **Warning:** `--config`/`SREDIAG_CONFIG` always refers to the main SREDIAG config. Diagnostic-specific settings must use the above keys/flags. The canonical diagnostics config file is `srediag-diagnose.yaml` (system) or `$HOME/.config/srediag/srediag-diagnose.yaml` (user).

@@ -1,4 +1,20 @@
-// Package plugin implements the plugin IPC server for srediag plugins.
+// Package plugin implements the plugin IPC server for SREDIAG plugins.
+//
+// This file defines the Server type for handling plugin IPC requests and managing plugin lifecycle and health.
+//
+// Usage:
+//   - Use Server to implement a plugin IPC server that listens for requests and manages plugin state.
+//   - Instantiate with NewServer, providing a logger.
+//   - Call Serve to start the server on a Unix domain socket.
+//
+// Best Practices:
+//   - Always check for errors from Serve and all handler methods.
+//   - Use proper locking for concurrent access to health and state.
+//   - Log all errors and important events for traceability.
+//
+// TODO:
+//   - Add context.Context support for cancellation and timeouts.
+//   - Implement more granular health and lifecycle management.
 package plugin
 
 import (
@@ -14,6 +30,11 @@ import (
 )
 
 // Server implements the plugin IPC server.
+//
+// Usage:
+//   - Instantiate with NewServer, providing a logger.
+//   - Call Serve to start the server on a Unix domain socket.
+//   - The server handles plugin initialization, start, stop, and health check requests.
 type Server struct {
 	logger     *zap.Logger
 	metadata   PluginMetadata
@@ -24,6 +45,12 @@ type Server struct {
 }
 
 // NewServer creates a new plugin server instance.
+//
+// Parameters:
+//   - logger: Logger for status and error reporting.
+//
+// Returns:
+//   - *Server: A new Server instance.
 func NewServer(logger *zap.Logger) *Server {
 	return &Server{
 		logger: logger,
@@ -35,6 +62,15 @@ func NewServer(logger *zap.Logger) *Server {
 }
 
 // Serve starts the plugin server on the specified Unix domain socket using shmipc-go.
+//
+// Parameters:
+//   - socketPath: Path to the Unix domain socket to listen on.
+//
+// Returns:
+//   - error: If the server fails to start or encounters an error, returns a detailed error.
+//
+// Side Effects:
+//   - Listens on a Unix domain socket and processes IPC requests.
 func (s *Server) Serve(socketPath string) error {
 	_ = os.Remove(socketPath)
 	ln, err := net.Listen("unix", socketPath)

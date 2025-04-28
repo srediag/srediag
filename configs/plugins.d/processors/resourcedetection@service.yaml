@@ -1,0 +1,3 @@
+detectors: [env, system, docker, kubernetes]
+timeout: 2s
+override: true 

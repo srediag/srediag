@@ -1,0 +1,11 @@
+// TODO: Implement SBOM generation (CycloneDX 1.5 JSON) via mage build:sbom (see architecture/build.md §1, §4)
+// TODO: Implement SLSA Level 2 attestation (in-toto.jsonl) in CI/CD (see architecture/build.md §1, §6)
+// TODO: Implement cosign OCI signatures for all artifacts (see architecture/build.md §1, §4)
+// TODO: Enforce signature verification for all deployment artifacts (see architecture/build.md §1)
+// TODO: Implement static collector build pipeline using otelcol-builder (see architecture/build.md §2)
+// TODO: Implement plugin build & packaging pipeline with manifest, SBOM, cosign (see architecture/build.md §3)
+// TODO: Implement mage targets for build, build:collector, build:plugin, build:image, sbom, sign, ci (see architecture/build.md §4)
+// TODO: Implement version synchronization between go.mod and builder YAML (see architecture/build.md §5)
+// TODO: Implement multi-arch OCI image build with Docker buildx (see architecture/build.md §7)
+// TODO: Implement build error codes (0-5) for CI/CD integration (see architecture/build.md §9)
+package main

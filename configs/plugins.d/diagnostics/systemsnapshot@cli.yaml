@@ -1,0 +1,2 @@
+resources: [cpu, memory, disk, net]  # Default resources
+detail_level: medium                 # low/medium/high 

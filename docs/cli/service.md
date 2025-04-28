@@ -235,3 +235,43 @@ sudo srediag service reload
 * Collector & YAML — [configuration/service.md](../configuration/service.md)  
 * Plugin lifecycle — [cli/plugin.md](plugin.md)  
 * Build pipeline — [cli/build.md](build.md)
+
+---
+
+## Parameter Reference
+
+| YAML Key                | Env Var                    | CLI Flag                |
+|-------------------------|----------------------------|-------------------------|
+| `service.port`          | `SREDIAG_SERVICE_PORT`     | `--service-port`        |
+| `service.name`          | `SREDIAG_SERVICE_NAME`     | `--service-name`        |
+| `collector.enabled`     | `SREDIAG_COLLECTOR_ENABLED`| `--collector-enabled`   |
+| `collector.config_path` | `SREDIAG_COLLECTOR_CONFIG_PATH` | `--service-yaml`   |
+
+> **Warning:** Do **not** use `--config` for service/collector YAML; this is reserved for the main SREDIAG config. Use `--service-yaml`/`SREDIAG_COLLECTOR_CONFIG_PATH` for collector pipeline configuration.
+
+---
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---
+
+## Best Practices
+
+* Use CLI flags or environment variables for automation and CI/CD.
+* Use YAML for persistent, version-controlled configuration.
+* Always check the effective config with `srediag service --print-config` (if available).
+* Unknown YAML keys are logged at debug level and ignored for forward compatibility.

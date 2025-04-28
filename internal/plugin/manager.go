@@ -1,4 +1,25 @@
-// Package plugin provides plugin management functionality
+// Package plugin provides plugin management functionality for SREDIAG, including loading, lifecycle, health checks, and integration with OpenTelemetry Collector components.
+//
+// This file defines the PluginManager, plugin instance types, and all exported methods for plugin orchestration and lifecycle management.
+//
+// Usage:
+//   - Use PluginManager to load, manage, and interact with plugins.
+//   - Use exported methods to load, get, list, check health, and unload plugins.
+//   - Use GetFactory to retrieve component factories for integration with the Collector.
+//
+// Best Practices:
+//   - Always check for errors from plugin manager methods.
+//   - Use context.Context for all operations to support cancellation and timeouts.
+//   - Use logger for all error and status reporting.
+//
+// TODO:
+//   - Add context.Context support for cancellation and timeouts to all methods.
+//   - Implement full health check and factory logic for plugins.
+//
+// TODO(P-01 Phase 1): Implement IPC fuzz/integration tests (see TODO.md P-01, ETA 2025-05-28)
+// TODO(P-02 Phase 1): Implement Manifest v1 JSON schema (see TODO.md P-02, ETA 2025-05-31)
+// TODO(P-03 Phase 1): Implement seccomp profile generator (see TODO.md P-03, ETA 2025-06-10)
+// TODO(P-04 Phase 1): Implement Heartbeat RPC + Prom metric (see TODO.md P-04, ETA 2025-06-12)
 package plugin
 
 import (
@@ -29,7 +50,14 @@ type PluginManager struct {
 	mu        sync.RWMutex
 }
 
-// NewManager creates a new plugin manager
+// NewManager creates a new plugin manager.
+//
+// Parameters:
+//   - logger: Logger for status and error reporting.
+//   - pluginDir: Directory where plugin binaries are located.
+//
+// Returns:
+//   - *PluginManager: A new PluginManager instance.
 func NewManager(logger *core.Logger, pluginDir string) *PluginManager {
 	if pluginDir == "" {
 		pluginDir = defaultPluginDir
@@ -42,7 +70,18 @@ func NewManager(logger *core.Logger, pluginDir string) *PluginManager {
 	}
 }
 
-// Load initializes a plugin of the specified type
+// Load initializes a plugin of the specified type.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - pluginType: The type of the plugin to load.
+//   - name: The name of the plugin to load.
+//
+// Returns:
+//   - error: If loading fails, returns a detailed error.
+//
+// Side Effects:
+//   - Starts plugin processes and manages IPC sessions.
 func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -139,7 +178,14 @@ func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType,
 	return nil
 }
 
-// Get returns a loaded plugin instance
+// Get returns a loaded plugin instance by name.
+//
+// Parameters:
+//   - name: The name of the plugin to retrieve.
+//
+// Returns:
+//   - IPluginInstance: The plugin instance if found.
+//   - bool: True if the plugin exists, false otherwise.
 func (m *PluginManager) Get(name string) (IPluginInstance, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -155,7 +201,10 @@ func (m *PluginManager) Get(name string) (IPluginInstance, bool) {
 	}, true
 }
 
-// List returns metadata for all loaded plugins
+// List returns metadata for all loaded plugins.
+//
+// Returns:
+//   - []PluginMetadata: Slice of metadata for all loaded plugins.
 func (m *PluginManager) List() []PluginMetadata {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -167,7 +216,13 @@ func (m *PluginManager) List() []PluginMetadata {
 	return list
 }
 
-// CheckHealth performs health checks on all plugins
+// CheckHealth performs health checks on all plugins.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//
+// Returns:
+//   - map[string]*PluginHealth: Map of plugin names to their health status.
 func (m *PluginManager) CheckHealth(ctx context.Context) map[string]*PluginHealth {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -284,7 +339,14 @@ func (i *clientInstance) Factory() (component.Factory, error) {
 	return nil, nil
 }
 
-// GetFactory returns a factory for the given component type
+// GetFactory returns a factory for the given component type.
+//
+// Parameters:
+//   - typ: The component type for which to retrieve the factory.
+//
+// Returns:
+//   - component.Factory: The factory for the given type, if found.
+//   - error: If no factory is found, returns a detailed error.
 func (m *PluginManager) GetFactory(typ component.Type) (component.Factory, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -302,6 +364,17 @@ func (m *PluginManager) GetFactory(typ component.Type) (component.Factory, error
 	return nil, fmt.Errorf("no factory found for type %s", typ)
 }
 
+// Unload stops and removes a loaded plugin by name.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - name: The name of the plugin to unload.
+//
+// Returns:
+//   - error: If unloading fails, returns a detailed error.
+//
+// Side Effects:
+//   - Stops plugin processes and closes IPC sessions.
 func (m *PluginManager) Unload(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

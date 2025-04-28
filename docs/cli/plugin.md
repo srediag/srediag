@@ -3,7 +3,7 @@
 Every Collector component — receiver, processor, exporter, extension, or
 diagnostic helper — is delivered as an **individual ELF binary**.
 The agent launches each binary in its own sandbox and keeps it alive
-over the agent’s control socket.
+over the agent's control socket.
 
 A component becomes usable only when its plugin is **enabled** for at
 least one **scope**:
@@ -225,7 +225,7 @@ srediag plugin enable --scope cli receiver mycpustatreceiver
 
 | Symptom | Likely cause / remedy |
 | :------ | :-------------------- |
-| *“component not found”* during reload | Plugin not **enabled** in that scope or alias spelled wrong |
+| *"component not found"* during reload | Plugin not **enabled** in that scope or alias spelled wrong |
 | *checksum mismatch* | Download correct artefact & verify cosign |
 | Plugin stuck in `error` state | Crash-loop; inspect `journalctl -u srediag` or `~/.config/srediag/logs/` |
 | `bind` fails | Alias already attached elsewhere; detach first |
@@ -258,3 +258,43 @@ See full syntax in [CLI manual](../cli/plugin.md).
 * Build & packaging — [build.md](build.md)
 * Service pipelines — [service.md](service.md)
 * Diagnose commands — [cli/diagnose.md](../cli/diagnose.md)
+
+---
+
+## Parameter Reference
+
+| YAML Key           | Env Var                    | CLI Flag         |
+|--------------------|---------------------------|------------------|
+| `plugins.dir`      | `SREDIAG_PLUGINS_DIR`      | `--plugins-dir`  |
+| `plugins.enabled`  | —                         | `plugin enable`  |
+| `plugins.exec_dir` | `SREDIAG_PLUGINS_EXEC_DIR` | `--exec-dir`     |
+| `srediag.config`   | `SREDIAG_CONFIG`           | `--config`       |
+
+> **Warning:** Do **not** use `--config` for plugin-specific settings; this is reserved for the main SREDIAG config. Use the above flags/envs for plugin configuration.
+
+---
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---
+
+## Best Practices
+
+* Use CLI flags or environment variables for automation and CI/CD.
+* Use YAML for persistent, version-controlled configuration.
+* Always check the effective config with `srediag plugin --print-config` (if available).
+* Unknown YAML keys are logged at debug level and ignored for forward compatibility.

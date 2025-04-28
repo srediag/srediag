@@ -1,17 +1,76 @@
+// Package build provides the build orchestration layer for SREDIAG.
+//
+// This file defines the configuration types and helpers for the build system, including plugin and builder config schemas.
+// It also provides helpers for loading, validating, and converting build configs from legacy to canonical formats.
+//
+// Usage:
+//   - Use these types to load and validate build configuration for plugin orchestration and builder operations.
+//   - All config loading should use LoadBuildConfig for schema compliance and validation.
+//
+// Best Practices:
+//   - Always validate required fields after loading config.
+//   - Use canonical types (BuilderConfig, PluginConfig) for all new code.
+//   - Avoid direct use of LegacyConfig except for migration/compatibility.
+//
+// TODO:
+//   - Remove LegacyConfig after full migration to canonical config.
+//   - Add context.Context support for cancellation and timeouts.
+//   - Add stricter schema validation and error reporting.
+//
+// Redundancy/Refactor:
+//   - LegacyConfig and ModuleConfig are transitional; prefer BuilderConfig and PluginConfig.
+//
+// TODO(C-01 Phase 0): Upgrade to OTel v0.124.0 / API v1.30.0 (see TODO.md C-01, ETA 2025-05-10)
+// TODO(C-02 Phase 0): Implement pipeline builder (Go → YAML) (see TODO.md C-02, ETA 2025-05-24)
+// TODO: Enforce exact Go module path and pinned version for all components in build YAML (see architecture/build.md §1.1)
+// TODO: Fail service startup if unrecognized components appear in pipeline YAML (see architecture/build.md §1.1)
+// TODO: Implement version synchronization utility between go.mod and build YAML (see architecture/build.md §4)
+// TODO: Validate module versions and generate diff/apply with --write (see architecture/build.md §4)
 package build
 
 import (
 	"fmt"
-	"os"
 	"path"
+	"path/filepath"
 	"strings"
-
-	yaml "gopkg.in/yaml.v3"
 
 	"github.com/srediag/srediag/internal/core"
 )
 
-// LegacyConfig represents the current otelcol-builder.yaml format
+// Note: YAML/go.mod sync is handled by UpdateBuilderYAMLVersions in update.go
+
+// PluginConfig represents a module/component in the build config (extensible).
+//
+// Usage:
+//   - Used as the canonical config for a plugin or component in BuilderConfig.
+//   - Use for all plugin orchestration and build operations.
+type PluginConfig struct {
+	GoMod  string   `yaml:"gomod"`
+	Import string   `yaml:"import,omitempty"`
+	Path   string   `yaml:"path,omitempty"`
+	Tags   []string `yaml:"tags,omitempty"`
+}
+
+// BuilderConfig represents the otelcol-builder.yaml configuration.
+// Used as the canonical build config for plugin orchestration and validated/converted from LegacyConfig.
+//
+// Usage:
+//   - Use for all new build orchestration and plugin management code.
+//   - Always validate required fields after loading.
+type BuilderConfig struct {
+	Dist struct {
+		Name           string `yaml:"name"`            // Name of the distribution
+		OutputPath     string `yaml:"output_path"`     // Output path for built artifacts
+		OtelColVersion string `yaml:"otelcol_version"` // OpenTelemetry Collector version
+	} `yaml:"dist"`
+	Components map[core.ComponentType]map[string]PluginConfig `yaml:"components"` // Map of component type to component configurations
+}
+
+// LegacyConfig represents the current otelcol-builder.yaml format.
+//
+// Usage:
+//   - Transitional struct for migration from legacy to canonical config.
+//   - Avoid in new code; use BuilderConfig instead.
 type LegacyConfig struct {
 	Dist struct {
 		Module           string `yaml:"module"`
@@ -28,21 +87,46 @@ type LegacyConfig struct {
 	Providers  []ModuleConfig `yaml:"providers"`
 }
 
-// ModuleConfig represents a module in the legacy config
+// ModuleConfig represents a module/component in the build config (legacy/extensible).
+//
+// Usage:
+//   - Transitional struct for migration from legacy to canonical config.
+//   - Avoid in new code; use PluginConfig instead.
 type ModuleConfig struct {
-	GoMod string `yaml:"gomod"`
+	GoMod  string   `yaml:"gomod"`
+	Import string   `yaml:"import,omitempty"`
+	Path   string   `yaml:"path,omitempty"`
+	Tags   []string `yaml:"tags,omitempty"`
 }
 
-// adaptLegacyConfig converts legacy config to new format
-func adaptLegacyConfig(configPath string) (*BuilderConfig, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
+// LoadBuildConfig loads, validates, and converts the build config for the builder.
+// It uses core.LoadConfigWithOverlay for discovery and precedence (flags > env > YAML > built-ins).
+// The canonical search root is the configs/ directory, matching the modular structure.
+//
+// Usage:
+//   - Use to load and validate build config for all builder operations.
+//   - Returns a canonical BuilderConfig for plugin orchestration.
+//
+// Best Practices:
+//   - Always check for required fields (dist.name, dist.version, dist.output_path, at least one component).
+//   - Use the returned BuilderConfig for all downstream build logic.
+//
+// TODO:
+//   - Add stricter schema validation and error reporting.
+//   - Remove legacy conversion after migration.
+func LoadBuildConfig(cliFlags map[string]string) (*BuilderConfig, error) {
 	var legacy LegacyConfig
-	if err := yaml.Unmarshal(data, &legacy); err != nil {
-		return nil, fmt.Errorf("failed to parse legacy config: %w", err)
+	// Use the canonical loader with overlays and correct precedence
+	// Always search in configs/ for build configs
+	if err := core.LoadConfigWithOverlay(&legacy, cliFlags, core.WithConfigPathSuffix("build")); err != nil {
+		return nil, err
+	}
+	// Validate required fields
+	if legacy.Dist.Name == "" || legacy.Dist.Version == "" || legacy.Dist.OutputPath == "" {
+		return nil, fmt.Errorf("dist.name, dist.version, and dist.output_path are required in build config")
+	}
+	if len(legacy.Receivers)+len(legacy.Processors)+len(legacy.Exporters)+len(legacy.Extensions) == 0 {
+		return nil, fmt.Errorf("at least one component (receiver, processor, exporter, extension) must be defined in build config")
 	}
 
 	config := &BuilderConfig{}
@@ -58,57 +142,42 @@ func adaptLegacyConfig(configPath string) (*BuilderConfig, error) {
 	// Convert receivers
 	for _, r := range legacy.Receivers {
 		name := extractComponentName(r.GoMod)
-		config.Components[core.TypeReceiver][name] = PluginConfig{
-			GoMod:  r.GoMod,
-			Import: extractImportPath(r.GoMod),
-		}
+		config.Components[core.TypeReceiver][name] = PluginConfig(r)
 	}
-
 	// Convert processors
 	for _, p := range legacy.Processors {
 		name := extractComponentName(p.GoMod)
-		config.Components[core.TypeProcessor][name] = PluginConfig{
-			GoMod:  p.GoMod,
-			Import: extractImportPath(p.GoMod),
-		}
+		config.Components[core.TypeProcessor][name] = PluginConfig(p)
 	}
-
 	// Convert exporters
 	for _, e := range legacy.Exporters {
 		name := extractComponentName(e.GoMod)
-		config.Components[core.TypeExporter][name] = PluginConfig{
-			GoMod:  e.GoMod,
-			Import: extractImportPath(e.GoMod),
-		}
+		config.Components[core.TypeExporter][name] = PluginConfig(e)
 	}
-
 	// Convert extensions
 	for _, e := range legacy.Extensions {
 		name := extractComponentName(e.GoMod)
-		config.Components[core.TypeExtension][name] = PluginConfig{
-			GoMod:  e.GoMod,
-			Import: extractImportPath(e.GoMod),
-		}
+		config.Components[core.TypeExtension][name] = PluginConfig(e)
 	}
 
 	return config, nil
 }
 
-// extractComponentName extracts component name from gomod path
+// extractComponentName extracts the component name from a Go module path (last path segment, minus version).
+//
+// Usage:
+//   - Used internally to normalize and extract plugin/component names from Go module paths.
+//
+// Best Practices:
+//   - Always use this helper when converting legacy configs.
 func extractComponentName(gomod string) string {
-	parts := strings.Split(gomod, " ")
+	parts := strings.Fields(gomod)
 	if len(parts) == 0 {
 		return ""
 	}
-	base := path.Base(parts[0])
-	return strings.TrimSuffix(base, "receiver")
-}
-
-// extractImportPath extracts import path from gomod
-func extractImportPath(gomod string) string {
-	parts := strings.Split(gomod, " ")
-	if len(parts) == 0 {
-		return ""
-	}
-	return parts[0]
+	modPath := parts[0]
+	base := path.Base(modPath)
+	// Remove version suffix if present (e.g., v0.124.0)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	return base
 }

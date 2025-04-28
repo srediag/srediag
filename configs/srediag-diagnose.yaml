@@ -1,0 +1,12 @@
+# SREDIAG Diagnostics Configuration
+# Canonical diagnostics config file (see docs/configuration/diagnose.md)
+diagnostics:
+  defaults:
+    output_format: table   # Default: table (json/yaml/table)
+    timeout: 30s           # Default: 30s
+    max_retries: 1         # Default: 1
+  plugins:
+    # Plugin configs are now in configs/plugins.d/diagnostics/
+    systemsnapshot: !include plugins.d/diagnostics/systemsnapshot@cli.yaml
+    perfprofiler:   !include plugins.d/diagnostics/perfprofiler@cli.yaml
+    cisbaseline:    !include plugins.d/diagnostics/cisbaseline@cli.yaml

@@ -1,5 +1,7 @@
-// Package logging provides a unified logging system for SREDIAG that integrates
-// with OpenTelemetry Collector's logging infrastructure.
+// Package core provides foundational types and utilities for the SREDIAG system.
+//
+// This file defines the Logger type, which wraps zap.Logger and integrates with OpenTelemetry Collector logging.
+// Logger provides structured, leveled logging for all SREDIAG components, with support for JSON/console output, feature gates, and component scoping.
 package core
 
 import (
@@ -11,7 +13,23 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Logger wraps zap.Logger to provide additional functionality
+// Logger wraps zap.Logger to provide additional functionality for SREDIAG.
+//
+// Usage:
+//   - Use Logger for all structured logging in SREDIAG components and CLI.
+//   - Supports JSON and console output, feature gates, and component scoping.
+//
+// Best Practices:
+//   - Prefer structured fields (ZapString, ZapInt, etc) for all logs.
+//   - Use WithComponent to scope logs to a subsystem.
+//   - Always flush logs with Shutdown on exit.
+//
+// TODO:
+//   - Add support for dynamic log level changes at runtime.
+//   - Integrate with OpenTelemetry log exporters.
+//
+// Redundancy/Refactor:
+//   - No redundancy; this is the canonical logger for SREDIAG.
 type Logger struct {
 	logger            *zap.Logger
 	gates             *featuregate.Registry
@@ -26,7 +44,9 @@ type Logger struct {
 	Sampling          *zap.SamplingConfig    // Sampling sets a sampling strategy for the logger
 }
 
-// defaultConfig provides the default logging configuration
+// defaultConfig provides the default logging configuration.
+//
+// Usage: Used internally by NewLogger when no config is provided.
 func defaultConfig() *Logger {
 	return &Logger{
 		Level:            "info",
@@ -38,7 +58,21 @@ func defaultConfig() *Logger {
 	}
 }
 
-// NewLogger creates a new logger with the given configuration
+// NewLogger creates a new logger with the given configuration.
+//
+// Usage:
+//   - Use to instantiate a Logger for CLI or service components.
+//   - Pass nil to use default config (info level, console output).
+//
+// Best Practices:
+//   - Always check the returned error.
+//   - Use WithComponent for subsystem-specific loggers.
+//
+// TODO:
+//   - Add support for config overlays from env/flags.
+//
+// Redundancy/Refactor:
+//   - No redundancy; this is the canonical logger constructor.
 func NewLogger(cfg *Logger) (*Logger, error) {
 	if cfg == nil {
 		cfg = defaultConfig()
@@ -108,7 +142,9 @@ func NewLogger(cfg *Logger) (*Logger, error) {
 	}, nil
 }
 
-// parseLevel converts a level string to zapcore.Level
+// parseLevel converts a level string to zapcore.Level.
+//
+// Usage: Used internally by NewLogger to parse log level strings.
 func parseLevel(level string) zapcore.Level {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -130,12 +166,16 @@ func parseLevel(level string) zapcore.Level {
 	}
 }
 
-// otelCore wraps zapcore.Core to integrate with OpenTelemetry
+// otelCore wraps zapcore.Core to integrate with OpenTelemetry.
+//
+// Usage: Used internally by NewLogger to wrap zapcore.Core for OTel integration.
 type otelCore struct {
 	zapcore.Core
 }
 
 // With adds structured context to the Core.
+//
+// Usage: Used internally for context propagation in zap.
 func (c *otelCore) With(fields []zapcore.Field) zapcore.Core {
 	return &otelCore{
 		Core: c.Core.With(fields),
@@ -143,6 +183,8 @@ func (c *otelCore) With(fields []zapcore.Field) zapcore.Core {
 }
 
 // Check determines whether the supplied Entry should be logged.
+//
+// Usage: Used internally by zap for log filtering.
 func (c *otelCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if c.Enabled(ent.Level) {
 		return ce.AddCore(ent, c)
@@ -151,27 +193,37 @@ func (c *otelCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.C
 }
 
 // Write serializes the Entry and any Fields supplied at the log site and writes them to their destination.
+//
+// Usage: Used internally by zap for log output. Can be extended for OTel log export.
 func (c *otelCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	// Here we could add OpenTelemetry specific handling if needed
 	return c.Core.Write(ent, fields)
 }
 
-// Sync flushes any buffered log entries
+// Sync flushes any buffered log entries.
+//
+// Usage: Used internally by zap for log flushing.
 func (c *otelCore) Sync() error {
 	return c.Core.Sync()
 }
 
-// GetLogLevel returns the current log level
+// GetLogLevel returns the current log level.
+//
+// Usage: Use to query the logger's current level for diagnostics or dynamic config.
 func (l *Logger) GetLogLevel() string {
 	return l.Level
 }
 
-// SetLogLevel changes the logging level
+// SetLogLevel changes the logging level.
+//
+// Usage: Use to change the logger's level at runtime (not thread-safe).
 func (l *Logger) SetLogLevel(level string) {
 	l.Level = level
 }
 
-// WithComponent returns a logger with the component field set
+// WithComponent returns a logger with the component field set.
+//
+// Usage: Use to scope logs to a specific subsystem or component.
 func (l *Logger) WithComponent(component string) *Logger {
 	return &Logger{
 		logger:            l.logger.With(zap.String("component", component)),
@@ -188,7 +240,9 @@ func (l *Logger) WithComponent(component string) *Logger {
 	}
 }
 
-// WithFeatureGates adds OpenTelemetry feature gates to the logger
+// WithFeatureGates adds OpenTelemetry feature gates to the logger.
+//
+// Usage: Use to enable or configure OTel feature gates for this logger.
 func (l *Logger) WithFeatureGates(gates *featuregate.Registry) *Logger {
 	if gates == nil {
 		gates = featuregate.NewRegistry()
@@ -197,52 +251,77 @@ func (l *Logger) WithFeatureGates(gates *featuregate.Registry) *Logger {
 	return l
 }
 
-// Shutdown flushes any buffered log entries
+// Shutdown flushes any buffered log entries.
+//
+// Usage:
+//   - Always call before process exit to ensure all logs are written.
 func (l *Logger) Shutdown() error {
 	return l.logger.Sync()
 }
 
-// Info logs a message at InfoLevel
+// Info logs a message at InfoLevel.
+//
+// Usage:
+//   - Use for normal operational messages.
 func (l *Logger) Info(msg string, fields ...zap.Field) {
 	l.logger.Info(msg, fields...)
 }
 
-// Error logs a message at ErrorLevel
+// Error logs a message at ErrorLevel.
+//
+// Usage:
+//   - Use for errors that should be visible to operators.
 func (l *Logger) Error(msg string, fields ...zap.Field) {
 	l.logger.Error(msg, fields...)
 }
 
-// Debug logs a message at DebugLevel
+// Debug logs a message at DebugLevel.
+//
+// Usage:
+//   - Use for verbose output during development or troubleshooting.
 func (l *Logger) Debug(msg string, fields ...zap.Field) {
 	l.logger.Debug(msg, fields...)
 }
 
-// Warn logs a message at WarnLevel
+// Warn logs a message at WarnLevel.
+//
+// Usage:
+//   - Use for non-fatal issues that may require attention.
 func (l *Logger) Warn(msg string, fields ...zap.Field) {
 	l.logger.Warn(msg, fields...)
 }
 
-// Add a public method to expose the underlying zap.Logger
+// UnderlyingZap exposes the underlying zap.Logger for advanced use.
+//
+// Usage: Use only if you need direct access to zap.Logger APIs.
 func (l *Logger) UnderlyingZap() *zap.Logger {
 	return l.logger
 }
 
-// ZapError returns a zap.Field for an error
+// ZapError returns a zap.Field for an error.
+//
+// Usage: Use to add error context to logs in a structured way.
 func ZapError(err error) zap.Field {
 	return zap.Error(err)
 }
 
-// ZapString returns a zap.Field for a string key/value
+// ZapString returns a zap.Field for a string key/value.
+//
+// Usage: Use to add string fields to logs in a structured way.
 func ZapString(key, val string) zap.Field {
 	return zap.String(key, val)
 }
 
-// ZapInt returns a zap.Field for an int key/value
+// ZapInt returns a zap.Field for an int key/value.
+//
+// Usage: Use to add integer fields to logs in a structured way.
 func ZapInt(key string, val int) zap.Field {
 	return zap.Int(key, val)
 }
 
-// ZapReflect returns a zap.Field for a reflect value
+// ZapReflect returns a zap.Field for a reflect value.
+//
+// Usage: Use to add arbitrary structured data to logs.
 func ZapReflect(key string, val interface{}) zap.Field {
 	return zap.Reflect(key, val)
 }

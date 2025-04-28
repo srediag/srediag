@@ -222,3 +222,51 @@ plugins:
 * [Service-mode Deep-Dive](service.md)  
 * [Build System](../build.md)  
 * [Plugin Architecture](../plugins/README.md)
+
+---
+
+## Parameter Reference
+
+| YAML Key                | Env Var                        | CLI Flag                |
+|-------------------------|--------------------------------|-------------------------|
+| `srediag.config`        | `SREDIAG_CONFIG`               | `--config`              |
+| `build.config_path`          | `SREDIAG_BUILD_CONFIG_PATH``         | `--build-config`        |
+| `build.output_dir`      | `SREDIAG_BUILD_OUTPUT_DIR`     | `--output-dir`          |
+| `plugins.dir`           | `SREDIAG_PLUGINS_DIR`          | `--plugins-dir`         |
+| `plugins.exec_dir`      | `SREDIAG_PLUGINS_EXEC_DIR`     | `--exec-dir`            |
+| `collector.config_path` | `SREDIAG_COLLECTOR_CONFIG_PATH`| `--service-yaml`        |
+| `diagnostics.config_path` | `SREDIAG_DIAGNOSTICS_CONFIG_PATH`| `--diag-service-yaml`        |
+| `diagnostics.defaults.output_format` | `SREDIAG_DIAG_OUTPUT_FORMAT` | `--diag-output-format` |
+| `diagnostics.defaults.timeout`       | `SREDIAG_DIAG_TIMEOUT`       | `--diag-timeout`             |
+
+> **Parameter Naming and Precedence:**
+>
+> * `--config`/`SREDIAG_CONFIG` is **only** for the main SREDIAG config. Subsystem configs (build, plugin, service, diagnostics) use their own unique flags and env vars as shown above.
+> * **Precedence:** CLI flags > Env vars > YAML config > Built-in defaults
+
+---
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---
+
+## Best Practices
+
+* Use CLI flags or environment variables for automation and CI/CD.
+* Use YAML for persistent, version-controlled configuration.
+* Always check the effective config with `srediag --print-config` (if available).
+* Unknown YAML keys are logged at debug level and ignored for forward compatibility.

@@ -12,8 +12,37 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-// UpdateYAMLVersions updates the YAML config in-place, filling in missing versions for known Otel core components using go.mod, commenting out and cleaning up unknowns, and writing a Makefile summary target.
-func UpdateYAMLVersions(yamlPath, goModPath, pluginGenDir string) error {
+// Package build provides the build orchestration layer for SREDIAG.
+//
+// This file provides utilities for updating the builder YAML configuration, including version synchronization with go.mod and plugin directory cleanup.
+//
+// Usage:
+//   - Use UpdateBuilder to update builder YAML config in-place, filling in missing versions for known Otel core components and cleaning up unknowns.
+//   - All config loading should use LoadBuildConfig for schema compliance and validation.
+//
+// Best Practices:
+//   - Always check for errors from update methods.
+//   - Use printSummary for reporting changes to stdout.
+//
+// TODO:
+//   - Add context.Context to all methods for cancellation and timeouts.
+//   - Add more granular error reporting for YAML and file operations.
+
+// UpdateBuilder updates the builder YAML config in-place, filling in missing versions for known Otel core components using go.mod, commenting out and cleaning up unknowns, and writing a Makefile summary target.
+//
+// Parameters:
+//   - yamlPath: Path to the builder YAML configuration file.
+//   - goModPath: Path to the go.mod file for authoritative Otel versions.
+//   - pluginGenDir: Directory containing generated plugin code.
+//
+// Returns:
+//   - error: If parsing, reading, or writing fails, returns a detailed error.
+//
+// Side Effects:
+//   - Modifies the builder YAML file in-place.
+//   - Removes plugin directories for unknown or missing versions.
+//   - Prints a summary of changes to stdout.
+func UpdateBuilder(yamlPath, goModPath, pluginGenDir string) error {
 	// 1. Parse go.mod for authoritative Otel versions
 	coreVersions, err := parseOtelCoreVersions(goModPath)
 	if err != nil {
@@ -53,6 +82,14 @@ func UpdateYAMLVersions(yamlPath, goModPath, pluginGenDir string) error {
 	return nil
 }
 
+// parseOtelCoreVersions parses the go.mod file for authoritative Otel core component versions.
+//
+// Parameters:
+//   - goModPath: Path to the go.mod file.
+//
+// Returns:
+//   - map[string]string: Map of Otel core module paths to their versions.
+//   - error: If reading or parsing fails, returns a detailed error.
 func parseOtelCoreVersions(goModPath string) (map[string]string, error) {
 	f, err := os.Open(goModPath)
 	if err != nil {
@@ -71,6 +108,15 @@ func parseOtelCoreVersions(goModPath string) (map[string]string, error) {
 	return core, scanner.Err()
 }
 
+// updateComponentVersions walks the YAML node tree and updates component versions, comments out unknowns, and removes plugin directories as needed.
+//
+// Parameters:
+//   - root: Root YAML node.
+//   - coreVersions: Map of Otel core module paths to their versions.
+//   - pluginGenDir: Directory containing generated plugin code.
+//   - changed: Pointer to slice tracking changed components.
+//   - commented: Pointer to slice tracking commented components.
+//   - removed: Pointer to slice tracking removed plugin directories.
 func updateComponentVersions(root *yaml.Node, coreVersions map[string]string, pluginGenDir string, changed, commented, removed *[]string) {
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
 		return
@@ -129,6 +175,13 @@ func updateComponentVersions(root *yaml.Node, coreVersions map[string]string, pl
 	}
 }
 
+// isComponentSection returns true if the given string is a recognized component section in the builder YAML.
+//
+// Parameters:
+//   - s: Section name string.
+//
+// Returns:
+//   - bool: True if the section is a recognized component section.
 func isComponentSection(s string) bool {
 	switch s {
 	case "receivers", "exporters", "processors", "extensions", "connectors":
@@ -137,6 +190,12 @@ func isComponentSection(s string) bool {
 	return false
 }
 
+// printSummary prints a summary of updated, commented, and removed components to stdout.
+//
+// Parameters:
+//   - changed: Slice of updated component names.
+//   - commented: Slice of commented component names.
+//   - removed: Slice of removed plugin directory paths.
 func printSummary(changed, commented, removed []string) {
 	if len(changed) > 0 {
 		fmt.Printf("Updated versions for: %s\n", strings.Join(changed, ", "))

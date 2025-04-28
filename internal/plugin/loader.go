@@ -11,13 +11,42 @@ import (
 	"github.com/srediag/srediag/internal/core"
 )
 
+// Package plugin provides plugin management, discovery, and loading logic for SREDIAG plugins.
+//
+// This file defines the Loader type for plugin discovery and loading, as well as methods for retrieving component factories.
+//
+// Usage:
+//   - Use Loader to discover and load plugins from a specified directory.
+//   - Use GetFactories to retrieve loaded component factories grouped by type.
+//
+// Best Practices:
+//   - Always check for errors from LoadPlugins.
+//   - Use logger for all error and status reporting.
+//   - Ensure plugin directories exist before loading.
+//
+// TODO:
+//   - Add context.Context support for cancellation and timeouts in all methods.
+//   - Improve error reporting and diagnostics for plugin loading failures.
+
 // Loader handles plugin discovery and loading.
+//
+// Usage:
+//   - Instantiate with NewLoader, providing a logger and plugin manager.
+//   - Call LoadPlugins to discover and load plugins from a directory.
+//   - Call GetFactories to retrieve loaded component factories grouped by type.
 type Loader struct {
 	logger  *core.Logger
 	manager *PluginManager
 }
 
 // NewLoader creates a new plugin loader.
+//
+// Parameters:
+//   - logger: Logger for status and error reporting.
+//   - manager: PluginManager instance for plugin orchestration.
+//
+// Returns:
+//   - *Loader: A new Loader instance.
 func NewLoader(logger *core.Logger, manager *PluginManager) *Loader {
 	return &Loader{
 		logger:  logger,
@@ -26,6 +55,17 @@ func NewLoader(logger *core.Logger, manager *PluginManager) *Loader {
 }
 
 // LoadPlugins loads all plugins from the specified directory.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - pluginDir: Directory containing plugin binaries.
+//
+// Returns:
+//   - error: If loading any plugin fails, returns a detailed error.
+//
+// Side Effects:
+//   - Modifies internal plugin manager state.
+//   - Logs status and errors.
 func (l *Loader) LoadPlugins(ctx context.Context, pluginDir string) error {
 	l.logger.Info("Loading plugins", core.ZapString("dir", pluginDir))
 
@@ -73,6 +113,12 @@ func (l *Loader) LoadPlugins(ctx context.Context, pluginDir string) error {
 }
 
 // GetFactories returns all loaded component factories grouped by type.
+//
+// Returns:
+//   - receivers: Map of receiver component types to factories.
+//   - processors: Map of processor component types to factories.
+//   - exporters: Map of exporter component types to factories.
+//   - extensions: Map of extension component types to factories.
 func (l *Loader) GetFactories() (
 	receivers map[component.Type]component.Factory,
 	processors map[component.Type]component.Factory,

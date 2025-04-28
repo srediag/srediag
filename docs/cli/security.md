@@ -1,5 +1,17 @@
 # `srediag security` — TLS & Integrity Utility
 
+| YAML Key                | Env Var                    | CLI Flag         |
+|-------------------------|----------------------------|------------------|
+| `security.tls.enabled`  | `SREDIAG_TLS_ENABLED`      | `--tls-enabled`  |
+| `security.tls.cert_file`| `SREDIAG_TLS_CERT_FILE`    | `--tls-cert`     |
+| `security.tls.key_file` | `SREDIAG_TLS_KEY_FILE`     | `--tls-key`      |
+| `security.tls.ca_file`  | `SREDIAG_TLS_CA_FILE`      | `--tls-ca`       |
+| `security.auth.type`    | `SREDIAG_AUTH_TYPE`        | `--auth-type`    |
+| `security.rbac.enabled` | `SREDIAG_RBAC_ENABLED`     | `--rbac-enabled` |
+| `srediag.config`        | `SREDIAG_CONFIG`           | `--config`       |
+
+> **Warning:** Use `--config`/`SREDIAG_CONFIG` only for the main SREDIAG config. Security settings must use the above hierarchical keys/flags.
+
 > **Purpose** – certificate lifecycle and integrity-check helper for the
 > SREDIAG binary and its plugins – nothing more.
 > For runtime knobs (YAML) see `configuration/security.md`.
@@ -119,64 +131,4 @@ Prints counters kept by the Plugin Manager.
 | rss_softlimit_hits   | 3 |
 | cpu_throttle_events  | 1 |
 
-### 4.2 `sandbox test`
-
-Runs a short probe that tries blocked syscalls (`ptrace`) and reports
-if the profile is active.
-
-Exit `3` when the sandbox is disabled or mis-configured.
-
----
-
-## 5 · `doctor` — Quick Health Scan
-
-```bash
-srediag security doctor --format json
-```
-
-Checks performed:
-
-| Check | Severity on fail |
-| :---- | :--------------- |
-| TLS expiry < 14 d | **warn** |
-| Binary unsigned / mismatching SHA | **error** |
-| Plugin bundle unsigned | **error** |
-| seccomp profile inactive | **error** |
-| CA bundle absence | **warn** |
-
-Exit codes:
-
-| Code | Interpretation |
-| ---: | :------------- |
-| 0 | all good |
-| 1 | only warnings |
-| 2 | at least one error |
-
----
-
-## 6 · Examples
-
-```bash
-# Nightly certificate rotation (cron)
-sudo srediag security cert rotate \
-     --cert /etc/letsencrypt/live/new.crt \
-     --key  /etc/letsencrypt/live/new.key \
-     --ca   /etc/letsencrypt/live/ca.pem
-
-# CI step – verify bundle before publishing
-srediag security verify plugin ./build/vectorhashprocessor.tar.gz
-
-# Check sandbox health on a running node
-srediag security sandbox stats
-```
-
----
-
-## 7 · Cross-Reference Index
-
-| Topic | Document |
-| :---- | :------- |
-| Architecture & threat model | `architecture/security.md` |
-| YAML security knobs | `configuration/security.md` |
-| Plugin verification flow | `architecture/service-collector.md` |
-| Build signing pipeline | `build/architecture.md` |
+### 4.2 `

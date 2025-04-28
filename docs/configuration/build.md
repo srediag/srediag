@@ -1,5 +1,12 @@
 # SREDIAG — Build-time Configuration
 
+| YAML Key           | Env Var                    | CLI Flag         |
+|--------------------|---------------------------|------------------|
+| `build.config`     | `SREDIAG_BUILD_CONFIG`     | `--build-config` |
+| `build.output_dir` | `SREDIAG_BUILD_OUTPUT_DIR` | `--output-dir`   |
+
+> **Warning:** Do **not** use `--config` for builder YAML; this is reserved for the main SREDIAG config. Always use `--build-config` for build operations.
+
 SREDIAG compiles a *static* OpenTelemetry Collector plus any **first-party or
 third-party plugins** using the upstream **otelcol-builder**.  
 All build inputs live in a single YAML: **`srediag-build.yaml`**.
@@ -67,7 +74,7 @@ Artifacts land in `./bin/` (agent) and `./plugins/` (plugins).
 
 | Symptom | Likely Cause |
 | :------ | :----------- |
-| “component not found” during `srediag service` | present in collector YAML but missing from **build** YAML |
+| "component not found" during `srediag service` | present in collector YAML but missing from **build** YAML |
 | ABI mismatch errors when loading `.so` plugins | agent built with Go < plugin Go version |
 
 ---
@@ -76,3 +83,18 @@ Artifacts land in `./bin/` (agent) and `./plugins/` (plugins).
 
 * [OpenTelemetry Collector Builder](https://opentelemetry.io/docs/collector/build/)  
 * [Technical Specification §6 Implementation Plan](../TECHNICAL_SPECIFICATION.md)
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--build-config <file>` flag
+2. `SREDIAG_BUILD_CONFIG` env var
+3. `build/srediag-build.yaml` (default)
+
+---

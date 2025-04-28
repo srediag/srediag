@@ -5,7 +5,7 @@
 
 | Status | Go | Licence |
 | :----: | :-: | :-----: |
-| ![build](https://img.shields.io/badge/build-alpha-blue) | ![go](https://img.shields.io/badge/go-1.24.x-blue) | MIT |
+| ![build](https://img.shields.io/badge/build-alpha-blue) | ![go](https://img.shields.io/badge/go-1.24.x-blue) |  Apache 2.0 |
 
 ---
 
@@ -122,7 +122,7 @@ We gladly accept **issue reports**, **feature proposals**, and **code PRs**—es
 
 ## 8 — License
 
-MIT.  See [`LICENSE`](LICENSE).
+Apache 2.0.  See [`LICENSE`](LICENSE).
 
 ---
 

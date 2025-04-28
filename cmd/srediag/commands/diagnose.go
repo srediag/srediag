@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/srediag/srediag/internal/core"
-	"github.com/srediag/srediag/internal/diagnostic"
+	"github.com/srediag/srediag/internal/diagnose"
 )
 
 // newDiagnoseCmd creates a new command for running system diagnostics
+// Only CLI wiring is present here; all business logic is delegated to internal/diagnostic CLI_* functions.
 func newDiagnoseCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diagnose [type]",
@@ -40,41 +41,38 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 	return cmd.Help()
 }
 
-// newSystemDiagCmd creates a command for running system diagnostics
+// newSystemDiagCmd wires the 'system' subcommand to diagnostic.CLI_SystemDiagnostics.
 func newSystemDiagCmd(ctx *core.AppContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "system",
 		Short: "Run system diagnostics",
 		Long:  `Check system health, resource usage, and configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			diag := diagnostic.NewSystemDiagnostics(ctx.GetLogger())
-			return diag.Run(cmd.Context())
+			return diagnose.CLI_SystemDiagnostics(ctx, cmd, args)
 		},
 	}
 }
 
-// newPerformanceDiagCmd creates a command for running performance diagnostics
+// newPerformanceDiagCmd wires the 'performance' subcommand to diagnostic.CLI_PerformanceDiagnostics.
 func newPerformanceDiagCmd(ctx *core.AppContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "performance",
 		Short: "Run performance diagnostics",
 		Long:  `Analyze system and application performance metrics.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			diag := diagnostic.NewPerformanceDiagnostics(ctx.GetLogger())
-			return diag.Run(cmd.Context())
+			return diagnose.CLI_PerformanceDiagnostics(ctx, cmd, args)
 		},
 	}
 }
 
-// newSecurityDiagCmd creates a command for running security diagnostics
+// newSecurityDiagCmd wires the 'security' subcommand to diagnostic.CLI_SecurityDiagnostics.
 func newSecurityDiagCmd(ctx *core.AppContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "security",
 		Short: "Run security diagnostics",
 		Long:  `Check security configurations and potential vulnerabilities.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			diag := diagnostic.NewSecurityDiagnostics(ctx.GetLogger())
-			return diag.Run(cmd.Context())
+			return diagnose.CLI_SecurityDiagnostics(ctx, cmd, args)
 		},
 	}
 }

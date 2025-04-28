@@ -46,7 +46,7 @@ Global flags:
 | **Network** | `latency` | `netlatencydiag` | *opt-in* |
 | **Filesystem** | `inode-usage` | `fsmonitor` | *opt-in* |
 
-\* *“opt-in” = plugin binary shipped but disabled by default to avoid heavy deps (kubectl, netperf, etc.).*
+\* *"opt-in" = plugin binary shipped but disabled by default to avoid heavy deps (kubectl, netperf, etc.).*
 
 Activate with:
 
@@ -233,3 +233,40 @@ srediag diagnose system snapshot --output json | jq .
 
 * Plugin lifecycle — [cli/plugin.md](plugin.md)
 * Service runtime — [cli/service.md](service.md)
+
+## Parameter Reference
+
+| YAML Key                              | Env Var                        | CLI Flag                |
+|---------------------------------------|--------------------------------|-------------------------|
+| `diagnostics.defaults.output_format`  | `SREDIAG_DIAG_OUTPUT_FORMAT`   | `--output` / `--format` |
+| `diagnostics.defaults.timeout`        | `SREDIAG_DIAG_TIMEOUT`         | `--timeout`             |
+| `srediag.config`                      | `SREDIAG_CONFIG`               | `--config`              |
+
+> **Warning:** `--config`/`SREDIAG_CONFIG` always refers to the main SREDIAG config. Diagnostic-specific settings must use the above keys/flags.
+
+---
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---
+
+## Best Practices
+
+* Use CLI flags or environment variables for automation and CI/CD.
+* Use YAML for persistent, version-controlled configuration.
+* Always check the effective config with `srediag diagnose --print-config` (if available).
+* Unknown YAML keys are logged at debug level and ignored for forward compatibility.

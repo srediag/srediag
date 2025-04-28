@@ -1,197 +1,223 @@
-# SREDIAG — Build-time Configuration
+# SREDIAG — Plugin Architecture
 
-SREDIAG compiles a fully **static binary** of the OpenTelemetry Collector, along with selected first-party or third-party plugins. The build process leverages the upstream `otelcol-builder` tool, driven by a single authoritative YAML configuration: **`build/srediag-build.yaml`**.
-
-This document describes the build-time YAML schema, usage patterns, integration workflows, and troubleshooting procedures to ensure consistent and reproducible artifact generation.
+This document describes the architecture and implementation details of SREDIAG’s **plugin system**, including dynamic plugin loading, secure runtime sandboxing, IPC mechanisms, lifecycle management, and integration into the collector pipeline and CLI diagnostics.
 
 ---
 
-## 1 · YAML Schema Overview
+## 1 · Architectural Overview
 
-A typical `srediag-build.yaml` configuration:
+Plugins are dynamically loadable binary extensions that augment SREDIAG’s built-in Collector capabilities. They provide specialized telemetry processing, diagnostics, and observability features without requiring the core binary to be recompiled or restarted.
 
-```yaml
-dist:
-  name: srediag
-  description: "SRE Diagnostics Collector"
-  version: "0.1.0"
-  output_path: ./bin/srediag
+### 1.1 · Plugin Architecture Layers
 
-receivers:
-  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.124.0
-  - gomod: github.com/srediag/receivers/journaldreceiver v0.1.0
-
-processors:
-  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.124.0
-  - gomod: github.com/srediag/processors/vectorhashprocessor v0.1.0
-
-exporters:
-  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.124.0
-  - gomod: github.com/srediag/exporters/clickhouseexporter v0.1.0
-
-extensions:
-  - gomod: go.opentelemetry.io/collector/extension/healthcheckextension v0.124.0
+```ascii
+┌───────────────────────────────────────────────────────────┐
+│                 SREDIAG Core Runtime                      │
+│                                                           │
+│   ┌───────────┐     ┌───────────┐     ┌───────────┐       │
+│   │ Receivers │───▶ │Processors │───▶ │ Exporters │       │
+│   └───────────┘     └───────────┘     └───────────┘       │
+│         ▲                 ▲                  ▲            │
+│         │                 │                  │            │
+│         └─────────┬───────┴───────┬──────────┘            │
+│                   │               │                       │
+│           ┌───────────────────────────┐                   │
+│           │       Plugin Manager      │                   │
+│           │ (Sandbox, IPC, lifecycle) │                   │
+│           └───────────────┬───────────┘                   │
+│                           │                               │
+│           ┌───────────────▼─────────────┐                 │
+│           │ Dynamically Loaded Plugins  │                 │
+│           │  (Receiver, Processor,      │                 │
+│           │   Exporter, Diagnostics)    │                 │
+│           └─────────────────────────────┘                 │
+│                           │                               │
+│              Seccomp/AppArmor Sandboxes                   │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
 ```
 
-### 1.1 · Schema Details
+### 1.2 · Plugin Types Supported
 
-| Field              | Description                                              | Required? |
-|--------------------|----------------------------------------------------------|-----------|
-| `dist.name`        | Name of the output binary                                | **Yes**   |
-| `dist.description` | Human-readable binary description                        | No        |
-| `dist.version`     | SemVer-compatible version                                | **Yes**   |
-| `dist.output_path` | Path to the generated collector binary                   | **Yes**   |
-| `receivers`        | Receiver modules (`gomod` paths and exact versions)      | **Yes**   |
-| `processors`       | Processor modules (`gomod` paths and exact versions)     | **Yes**   |
-| `exporters`        | Exporter modules (`gomod` paths and exact versions)      | **Yes**   |
-| `extensions`       | Extension modules (`gomod` paths and exact versions)     | No        |
-
-**Important:**
-
-- Every referenced module **must** include the exact Go module path and pinned version to guarantee reproducibility.
-- Components missing here **cannot be referenced at runtime**. The service startup fails if unrecognized components appear in the pipeline YAML.
+| Type         | Responsibility                                               | Example                  |
+|--------------|--------------------------------------------------------------|--------------------------|
+| **Receiver** | Ingest telemetry from external sources                       | `journaldreceiver`       |
+| **Processor**| Transform, deduplicate, compress telemetry                   | `vectorhashprocessor`    |
+| **Exporter** | Forward telemetry to external destinations                   | `clickhouseexporter`     |
+| **Diagnostics**| Provide runtime diagnostics and checks via CLI             | `perfprofiler`           |
+| **Extension**| Special observability or integration capabilities            | `healthcheckextension`   |
 
 ---
 
-## 2 · Building Collector & Plugins
+## 2 · Plugin Lifecycle & Management
 
-Build commands (`srediag build`) use the provided YAML specification:
+The Plugin Manager handles the full lifecycle of plugins dynamically at runtime, providing isolation, validation, and seamless integration with the Collector and CLI.
 
-**Build All Components:**
-
-```bash
-# Builds complete static collector and plugins
-srediag build all --config build/srediag-build.yaml
-```
-
-- Output: static binary at `./bin/srediag`
-- Plugins are individually packaged as bundles (`.tar.gz`) in `./plugins/`.
-
-**Build Single Plugin Only:**
-
-```bash
-# Builds specified plugin independently
-srediag build plugin --type processor --name vectorhashprocessor
-```
-
-- Output: binary & manifest bundle in `./plugins/vectorhashprocessor.tar.gz`
-
----
-
-## 3 · CI/CD Integration
-
-The YAML configuration is the cornerstone for reproducible CI/CD pipelines:
-
-**Mage Integration (`mage ci`):**
-
-- Runs linting, testing, and builds all artifacts to enforce YAML consistency.
-- Generates a Software Bill of Materials (SBOM) using `syft`.
-- Signs artifacts with `cosign`, producing verifiable signatures and SLSA provenance attestations.
-
-**CI/CD Steps Overview:**
+### 2.1 · Loading & Initialization Sequence
 
 ```mermaid
-graph LR
-  PR["Pull Request"] --> LintTest["golangci-lint & unit tests"]
-  LintTest --> Build["mage ci (build & verify YAML consistency)"]
-  Build --> SBOM["Generate SBOM (syft)"]
-  SBOM --> Cosign["Cosign signing & attestation"]
-  Cosign --> Release["Draft GitHub Release (on tag)"]
+sequenceDiagram
+  participant M as Plugin Manager
+  participant P as Plugin Binary
+  M->>P: Execute plugin binary (sandboxed)
+  activate P
+  P->>M: Register Component Factory
+  P->>M: Provide Manifest & Capabilities
+  M->>M: Validate Manifest & ABI Compatibility
+  M->>P: Confirm Registration
+  deactivate P
 ```
 
----
+- **Manifest Validation:** SHA-256 and Cosign signatures verified at load time.
+- **ABI Compatibility:** Go runtime and OTel Component API checked (must match agent binary exactly).
 
-## 4 · Version Synchronization Utility
+### 2.2 · Hot-Swap and Draining Protocol
 
-Use the built-in version synchronization helper to ensure YAML and `go.mod` coherence:
+Plugins support zero-downtime upgrades:
 
-```bash
-srediag build update-yaml-versions \
-  --yaml build/srediag-build.yaml \
-  --gomod go.mod \
-  --plugin-gen plugins/generated
+```mermaid
+sequenceDiagram
+  participant Manager
+  participant OldPlugin
+  participant NewPlugin
+  Manager->>OldPlugin: Drain Request
+  OldPlugin-->>Manager: Ack (success/fail)
+  alt Success
+    Manager->>NewPlugin: Start & Init
+    NewPlugin-->>Manager: Ready
+    Manager->>OldPlugin: Graceful Termination (SIGTERM)
+  else Failure/Timeout
+    Manager-->>Manager: Abort Swap & Alert
+  end
 ```
 
-**Workflow:**
-
-1. Extracts module versions from `go.mod`.
-2. Validates module versions against YAML components.
-3. Generates a diff; applies with `--write` flag if approved.
+- **Draining timeout:** configurable (`30s` default).
+- **Abort policy:** clearly defined rollback if drain fails.
 
 ---
 
-## 5 · Multi-Architecture Container Build
+## 3 · Plugin Runtime Environment (Sandboxing)
 
-The collector binary is embedded in a multi-architecture OCI container, using Docker `buildx`:
+Plugins run under strict security sandbox policies to protect host system resources.
 
-```bash
-docker buildx bake \
-  --platform linux/amd64,linux/arm64 \
-  -f build/docker-bake.hcl
+### 3.1 · Seccomp & AppArmor Profiles
+
+| Policy               | Enforcement                       | Restrictions                                 |
+|----------------------|-----------------------------------|----------------------------------------------|
+| **Seccomp**          | Linux kernel enforced (`default`) | No ptrace, no raw sockets, restricted syscalls |
+| **AppArmor**         | Linux kernel policy (`strict`)    | Read-only `/proc`, `/sys`, restricted FS access |
+
+### 3.2 · Resource Quotas & Cgroups
+
+| Resource         | Quota                | Enforcement                  |
+|------------------|----------------------|------------------------------|
+| **CPU**          | Percentage soft cap (`cpu.weight`) | Dynamic throttling            |
+| **Memory**       | RSS limit per-plugin (`mem_guard`) | Enforced via Cgroups OOM kill |
+
+---
+
+## 4 · Inter-Process Communication (IPC)
+
+Plugins and the core runtime communicate efficiently via IPC mechanisms.
+
+- **IPC Transport:** Shared memory channels (`shmipc-go`) for high throughput.
+- **Data Serialization:** FlatBuffers/Protobuf for zero-copy data passing.
+- **Lifecycle Signaling:** Unix signals (`SIGTERM`) for graceful shutdown.
+
+---
+
+## 5 · Plugin Manifest Schema
+
+Every plugin bundle includes a descriptive manifest (`manifest.yaml`):
+
+```yaml
+name: vectorhashprocessor
+type: processor
+version: 0.1.0
+sha256: "<hash>"
+cosign_signature: "<sig>"
+entrypoint: "./vectorhashprocessor"
+capabilities:
+  - processor/vectorhash
+  - diag/dedup-stats
 ```
 
-- Base Image: `gcr.io/distroless/static:nonroot`
-- Includes OCI annotations (`org.opencontainers.image.*`) and SBOM digest references.
+- **Manifest validation:** SHA-256 hash matching and Cosign verification during loading.
 
 ---
 
-## 6 · Local Development Workflow
+## 6 · Plugin SDK Contract
 
-A practical workflow for developing and testing locally:
+Plugin developers follow a simple, type-safe SDK:
 
-```bash
-# 1. Build collector
-make build
-
-# 2. Run locally
-./bin/srediag service --config configs/srediag.yaml
-
-# 3. Plugin Development Example:
-cd plugins/processors/vectorhashprocessor
-make all
-srediag plugin install --file bundle.tar.gz --scope service
-srediag plugin enable processor vectorhashprocessor
+```go
+type Plugin interface {
+    Init(context.Context, PluginHost) error
+    Register(factory CollectorFactory) error
+    Capabilities() []string
+    Shutdown(context.Context) error
+}
 ```
 
-- For debugging, Delve (`dlv`) can be used seamlessly against compiled plugins.
+- Plugins expose their components through the CollectorFactory.
+- Diagnostic plugins additionally expose CLI commands.
 
 ---
 
-## 7 · Error Handling & Troubleshooting
+## 7 · CLI & Diagnostic Integration
 
-Standardized error codes for the build CLI:
+Diagnostic plugins register directly into the CLI subsystem:
 
-| Exit Code | Reason                                          | Action                                       |
-|-----------|-------------------------------------------------|----------------------------------------------|
-| 0         | Success                                         | None                                         |
-| 1         | General (unexpected) error                      | Inspect logs                                 |
-| 2         | Version mismatch (YAML ↔ `go.mod`)              | Run `update-yaml-versions --write`           |
-| 3         | Lint or vet failed                              | Correct lint errors                          |
-| 4         | Unit tests failed                               | Fix tests                                    |
-| 5         | Cosign signing or verification failed           | Check artifact integrity & signing keys      |
+```go
+func (p *PerfProfilerPlugin) RegisterCLI(cmd *cobra.Command) {
+    cmd.AddCommand(&cobra.Command{
+        Use:   "cpu-profile",
+        Short: "Collect CPU profiling data",
+        RunE:  p.runProfile,
+    })
+}
+```
 
-Common pitfalls and quick resolution:
-
-| Issue                                        | Possible cause                                      | Solution                                  |
-|----------------------------------------------|-----------------------------------------------------|-------------------------------------------|
-| "component not found" on startup             | Component missing in YAML spec                     | Add missing component to build YAML       |
-| Plugin ABI mismatch                          | Agent and plugin built with different Go versions  | Ensure consistent Go versions             |
-| Collector doesn't reflect YAML changes       | Forgetting to run `build all` after YAML changes   | Always run `build all` after YAML update |
+- Dynamically loaded diagnostic plugins appear under `srediag diagnose`.
 
 ---
 
-## 8 · Cross-Document References
+## 8 · Observability & Metrics
 
-| Topic                      | Document                                       |
-|----------------------------|------------------------------------------------|
-| Plugin Runtime & Management| [Plugin Configuration](plugins.md)             |
-| Security & Signing         | [Security Configuration](security.md)          |
-| Service & Collector        | [Service Configuration](service.md)            |
-| Diagnostics Subsystem      | [Diagnostics Configuration](diagnose.md)       |
-| Architecture Overview      | [Build Architecture](../architecture/build.md) |
+Plugin Manager and plugins expose consistent telemetry metrics:
+
+| Metric Name                             | Type    | Description                           |
+|-----------------------------------------|---------|---------------------------------------|
+| `srediag_plugin_load_total{name,status}`| counter | Total load attempts (`name`, `status`)|
+| `srediag_plugin_runtime_errors{name}`   | counter | Plugin execution errors               |
+| `srediag_plugin_memory_bytes{name}`     | gauge   | Current memory usage per plugin      |
 
 ---
 
-## 9 · Document Governance
+## 9 · Troubleshooting & Error Handling
 
-- Licensed under MIT License © 2025 Integra SH
+Standardized error codes and troubleshooting steps:
+
+| Error Scenario                   | Recommended Action                          |
+|----------------------------------|---------------------------------------------|
+| Manifest validation failed       | Check SHA256 & Cosign signatures            |
+| ABI mismatch error               | Rebuild plugin & collector with same Go/OTel|
+| Seccomp violations               | Adjust plugin syscall policy                |
+| High plugin resource usage       | Verify cgroup limits & configuration        |
+
+---
+
+## 10 · Cross-Document References
+
+| Component                       | Detailed Documentation                   |
+|---------------------------------|------------------------------------------|
+| Configuration & YAML Reference  | [`configuration/plugins.md`](../configuration/plugins.md) |
+| Service & Pipeline Integration  | [`architecture/service.md`](service.md)  |
+| Security & Hardening Practices  | [`architecture/security.md`](security.md)|
+| Diagnostics Commands & CLI      | [`architecture/diagnose.md`](diagnose.md)|
+
+---
+
+## 11 · Document Governance & Tracking
+
+- Licensed under Apache 2.0

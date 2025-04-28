@@ -1,5 +1,13 @@
 # SREDIAG — Plugins (Binary Model)
 
+| YAML Key           | Env Var                    | CLI Flag         |
+|--------------------|---------------------------|------------------|
+| `plugins.dir`      | `SREDIAG_PLUGINS_DIR`      | `--plugins-dir`  |
+| `plugins.exec_dir` | `SREDIAG_PLUGINS_EXEC_DIR` | `--exec-dir`     |
+| `plugins.enabled`  | —                         | `plugin enable`  |
+
+> **Warning:** Do **not** use `--config` for plugin-specific settings; this is reserved for the main SREDIAG config. Use the above flags/envs for plugin configuration.
+
 All collector components (receivers, processors, exporters, extensions)
 are delivered as **stand-alone binaries** launched by the agent.  
 A component is usable only if its plugin is **enabled**.
@@ -122,7 +130,7 @@ srediag plugin enable --scope cli receiver mycpustatreceiver
 | :------ | :----- |
 | `binary not executable` | `chmod +x <binary>` |
 | `checksum mismatch` | Re-download artefact; cross-check release manifest |
-| Component “not found” during reload | Add plugin to `plugins.enabled` or correct alias spelling |
+| Component "not found" during reload | Add plugin to `plugins.enabled` or correct alias spelling |
 
 Enable debug logs:
 
@@ -137,3 +145,21 @@ SREDIAG_LOG_LEVEL=debug srediag service --config /etc/srediag/srediag.yaml
 * [Build Configuration](build.md)  
 * [Service / Collector](service.md)  
 * [CLI guide — plugin commands](../cli/README.md)
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---

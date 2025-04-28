@@ -1,123 +1,128 @@
-# SREDIAG Build & Release Architecture
+# SREDIAG — Build-time Configuration
 
-This document specifies the detailed architecture and implementation strategies used in SREDIAG's build and release processes. It clarifies the workflows, artifact management, version synchronization, CI/CD integration, and multi-platform container distribution, ensuring reproducibility, security, and ease of maintenance.
+SREDIAG compiles a fully **static binary** of the OpenTelemetry Collector, along with selected first-party or third-party plugins. The build process leverages the upstream `otelcol-builder` tool, driven by a single authoritative YAML configuration: **`build/srediag-build.yaml`**.
 
----
-
-## 1 · Artifact Matrix Overview
-
-The following artifacts are generated, verified, and signed in the build pipeline:
-
-| Artifact            | Format                             | Description                                              | Build Step               |
-|---------------------|------------------------------------|----------------------------------------------------------|--------------------------|
-| **Collector Binary**| Static PIE ELF binary              | Unified collector binary                                 | `mage build:collector`   |
-| **Plugin Bundles**  | `.tar.gz` (binary + manifest + sig)| Dynamically loadable plugins                             | `mage build:plugin`      |
-| **OCI Container**   | Distroless multi-arch container    | Container image for Kubernetes and Docker runtimes       | `mage build:image`       |
-| **SBOM**            | CycloneDX 1.5 JSON                 | Software Bill of Materials                               | `mage build:sbom`        |
-| **Attestation**     | SLSA Level 2 (`in-toto.jsonl`)     | Provenance metadata for audit and compliance             | GitHub Actions           |
-| **Signature**       | Cosign OCI signatures              | Verification of artifact integrity                       | GitHub Actions           |
-
-All artifacts intended for deployment (manual or automated via Helm/ArgoCD) must pass signature verification.
+This document describes the build-time YAML schema, usage patterns, integration workflows, and troubleshooting procedures to ensure consistent and reproducible artifact generation.
 
 ---
 
-## 2 · Static Collector Build Pipeline
+## 1 · YAML Schema Overview
 
-SREDIAG uses the OpenTelemetry Collector builder tool (`otelcol-builder`) to produce a single static binary (`bin/srediag`):
+A typical `srediag-build.yaml` configuration:
 
-```mermaid
-flowchart LR
-  config(build/srediag-build.yaml) --> builder[otelcol-builder]
-  builder --> src[Generated source code]
-  src --> gobuild[Go Build: static, PIE, musl libc]
-  gobuild --> strip[Binary strip]
-  strip --> bin(bin/srediag)
+```yaml
+dist:
+  name: srediag
+  description: "SRE Diagnostics Collector"
+  version: "0.1.0"
+  output_path: ./bin/srediag
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.124.0
+  - gomod: github.com/srediag/receivers/journaldreceiver v0.1.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.124.0
+  - gomod: github.com/srediag/processors/vectorhashprocessor v0.1.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.124.0
+  - gomod: github.com/srediag/exporters/clickhouseexporter v0.1.0
+
+extensions:
+  - gomod: go.opentelemetry.io/collector/extension/healthcheckextension v0.124.0
 ```
 
-- **Module Management:** All modules explicitly version-pinned (no forks).
-- **Metadata Injection:** Version, commit, and build date embedded via `go:embed`.
+### 1.1 · Schema Details
+
+| Field              | Description                                              | Required? |
+|--------------------|----------------------------------------------------------|-----------|
+| `dist.name`        | Name of the output binary                                | **Yes**   |
+| `dist.description` | Human-readable binary description                        | No        |
+| `dist.version`     | SemVer-compatible version                                | **Yes**   |
+| `dist.output_path` | Path to the generated collector binary                   | **Yes**   |
+| `receivers`        | Receiver modules (`gomod` paths and exact versions)      | **Yes**   |
+| `processors`       | Processor modules (`gomod` paths and exact versions)     | **Yes**   |
+| `exporters`        | Exporter modules (`gomod` paths and exact versions)      | **Yes**   |
+| `extensions`       | Extension modules (`gomod` paths and exact versions)     | No        |
+
+**Important:**
+
+- Every referenced module **must** include the exact Go module path and pinned version to guarantee reproducibility.
+- Components missing here **cannot be referenced at runtime**. The service startup fails if unrecognized components appear in the pipeline YAML.
 
 ---
 
-## 3 · Plugin Build & Packaging Pipeline
+## 2 · Building Collector & Plugins
 
-Plugins follow a strictly enforced, reproducible build workflow:
+Build commands (`srediag build`) use the provided YAML specification:
 
-```mermaid
-flowchart TD
-  make["make build-plugin PLUGIN=processors/vectorhashprocessor"] --> lint["golangci-lint, go vet, go test"]
-  lint --> build["go build -buildmode=pie"]
-  build --> sbom["syft sbom"]
-  sbom --> cosign["cosign sign"]
-  cosign --> package["tar.gz bundle"]
+**Build All Components:**
+
+```bash
+# Builds complete static collector and plugins
+srediag build all --config build/srediag-build.yaml
 ```
 
-- **ABI Compatibility:** Embedded ABI fingerprint using Go's symbol tables (`go tool nm | sha1`).
-- **Manifest:** Generated post-build, includes SHA-256 hash and cosign signature reference.
+- Output: static binary at `./bin/srediag`
+- Plugins are individually packaged as bundles (`.tar.gz`) in `./plugins/`.
+
+**Build Single Plugin Only:**
+
+```bash
+# Builds specified plugin independently
+srediag build plugin --type processor --name vectorhashprocessor
+```
+
+- Output: binary & manifest bundle in `./plugins/vectorhashprocessor.tar.gz`
 
 ---
 
-## 4 · Mage Build Targets Dependency Graph
+## 3 · CI/CD Integration
 
-Mage targets orchestrate all local and CI/CD builds, ensuring consistency:
+The YAML configuration is the cornerstone for reproducible CI/CD pipelines:
 
-| Target             | Dependencies                               | Output / Description                              |
-|--------------------|--------------------------------------------|---------------------------------------------------|
-| `build`            | `lint → test → build:collector`            | Local development collector binary                |
-| `build:collector`  | —                                          | Static collector binary                           |
-| `build:plugin`     | `codegen → vet → test`                     | Single plugin binary and bundle                   |
-| `build:image`      | `build:collector`                          | Multi-arch OCI container                          |
-| `sbom`             | `build:collector`                          | CycloneDX SBOM JSON                               |
-| `sign`             | `sbom`                                     | Cosign artifact signatures                        |
-| `ci`               | `lint → test → build → sbom → sign`        | Full CI/CD pipeline for GitHub Actions            |
+**Mage Integration (`mage ci`):**
 
-**Environment Variables:** Respect `GOFLAGS`, `CGO_ENABLED=0`, and cross-platform `TARGETOS/TARGETARCH`.
+- Runs linting, testing, and builds all artifacts to enforce YAML consistency.
+- Generates a Software Bill of Materials (SBOM) using `syft`.
+- Signs artifacts with `cosign`, producing verifiable signatures and SLSA provenance attestations.
+
+**CI/CD Steps Overview:**
+
+```mermaid
+graph LR
+  PR["Pull Request"] --> LintTest["golangci-lint & unit tests"]
+  LintTest --> Build["mage ci (build & verify YAML consistency)"]
+  Build --> SBOM["Generate SBOM (syft)"]
+  SBOM --> Cosign["Cosign signing & attestation"]
+  Cosign --> Release["Draft GitHub Release (on tag)"]
+```
 
 ---
 
-## 5 · Version Synchronization Strategy
+## 4 · Version Synchronization Utility
 
-Ensures coherence between Go modules and builder YAML configurations:
+Use the built-in version synchronization helper to ensure YAML and `go.mod` coherence:
 
 ```bash
 srediag build update-yaml-versions \
   --yaml build/srediag-build.yaml \
   --gomod go.mod \
-  --plugin-gen plugin/generated
+  --plugin-gen plugins/generated
 ```
 
-Steps executed:
+**Workflow:**
 
-1. Extract module versions from `go.mod`.
-2. Update corresponding YAML configurations.
-3. Report discrepancies (failure unless `--write` is provided).
+1. Extracts module versions from `go.mod`.
+2. Validates module versions against YAML components.
+3. Generates a diff; applies with `--write` flag if approved.
 
 ---
 
-## 6 · CI/CD Integration (Provider-Agnostic)
+## 5 · Multi-Architecture Container Build
 
-SREDIAG’s build pipeline is CI-provider agnostic and follows industry-standard best practices:
-
-```mermaid
-graph LR
-  PR["Pull Request"] --> lint["Linting & Vetting"]
-  lint --> test["Unit Tests & Coverage ≥80%"]
-  test --> build["Build Artifacts"]
-  build --> sbom["Generate SBOM"]
-  sbom --> sign["Cosign Signing"]
-  sign --> attest["SLSA L2 Attestation"]
-  attest --> release["Draft Release (on Tag)"]
-```
-
-- **Static Analysis:** Uses `golangci-lint`, `govulncheck` for security compliance.
-- **SLSA Provenance:** Artifacts are attested to satisfy audit and regulatory requirements.
-- **Draft Release:** Created only upon tag events for manual approval before publishing.
-
----
-
-## 7 · Multi-Architecture Container Image
-
-OCI images produced via Docker buildx:
+The collector binary is embedded in a multi-architecture OCI container, using Docker `buildx`:
 
 ```bash
 docker buildx bake \
@@ -125,62 +130,68 @@ docker buildx bake \
   -f build/docker-bake.hcl
 ```
 
-- **Base Image:** `gcr.io/distroless/static:nonroot` for minimal attack surface.
-- **Image Metadata:** OCI annotations (`org.opencontainers.image.*`), embedded SBOM.
+- Base Image: `gcr.io/distroless/static:nonroot`
+- Includes OCI annotations (`org.opencontainers.image.*`) and SBOM digest references.
 
 ---
 
-## 8 · Recommended Developer Workflow
+## 6 · Local Development Workflow
 
-A standardized, reproducible local development workflow:
+A practical workflow for developing and testing locally:
 
-1. **Build the collector binary**:
+```bash
+# 1. Build collector
+make build
 
-    ```bash
-    make build
-    ```
+# 2. Run locally
+./bin/srediag service --config configs/srediag.yaml
 
-2. **Local Service Run**:
+# 3. Plugin Development Example:
+cd plugins/processors/vectorhashprocessor
+make all
+srediag plugin install --file bundle.tar.gz --scope service
+srediag plugin enable processor vectorhashprocessor
+```
 
-    ```bash
-    ./bin/srediag service --config configs/srediag.yaml
-    ```
-
-3. **Develop and Test a Plugin**:
-
-    ```bash
-    cd plugins/processors/myprocessor
-    make all
-    srediag plugin install --file bundle.tar.gz --scope cli
-    srediag plugin enable processor myprocessor
-    ```
-
-4. **Advanced Debugging**:
-    Utilize Delve (`dlv`) for debugging plugins seamlessly.
+- For debugging, Delve (`dlv`) can be used seamlessly against compiled plugins.
 
 ---
 
-## 9 · Build Error Codes & Meaning
+## 7 · Error Handling & Troubleshooting
 
-Consistent CLI exit codes for easy CI/CD and scripting integrations:
+Standardized error codes for the build CLI:
 
-| Code | Meaning                                          |
-|------|--------------------------------------------------|
-| 0    | Success                                          |
-| 1    | Generic error (unexpected failures)              |
-| 2    | Version mismatch (between builder YAML and go.mod)|
-| 3    | Lint or vet checks failed                        |
-| 4    | Unit tests failed                                |
-| 5    | Cosign or signature verification error           |
+| Exit Code | Reason                                          | Action                                       |
+|-----------|-------------------------------------------------|----------------------------------------------|
+| 0         | Success                                         | None                                         |
+| 1         | General (unexpected) error                      | Inspect logs                                 |
+| 2         | Version mismatch (YAML ↔ `go.mod`)              | Run `update-yaml-versions --write`           |
+| 3         | Lint or vet failed                              | Correct lint errors                          |
+| 4         | Unit tests failed                               | Fix tests                                    |
+| 5         | Cosign signing or verification failed           | Check artifact integrity & signing keys      |
+
+Common pitfalls and quick resolution:
+
+| Issue                                        | Possible cause                                      | Solution                                  |
+|----------------------------------------------|-----------------------------------------------------|-------------------------------------------|
+| "component not found" on startup             | Component missing in YAML spec                     | Add missing component to build YAML       |
+| Plugin ABI mismatch                          | Agent and plugin built with different Go versions  | Ensure consistent Go versions             |
+| Collector doesn't reflect YAML changes       | Forgetting to run `build all` after YAML changes   | Always run `build all` after YAML update |
 
 ---
 
-## 10 · Cross-Reference & Related Documents
+## 8 · Cross-Document References
 
-| Component                               | Related Documentation                   |
-|-----------------------------------------|-----------------------------------------|
-| Collector & Pipeline Management         | [`architecture/service.md`](service.md) |
-| Plugin Manifest & Execution Rules       | [`configuration/plugins.md`](../configuration/plugins.md) |
-| CLI Build Commands                      | [`cli/build.md`](../cli/build.md)       |
-| Security & Artifact Signing             | [`architecture/security.md`](security.md)|
-| Diagnostics Command Integration         | [`architecture/diagnose.md`](diagnose.md)|
+| Topic                      | Document                                       |
+|----------------------------|------------------------------------------------|
+| Plugin Runtime & Management| [Plugin Configuration](plugins.md)             |
+| Security & Signing         | [Security Configuration](security.md)          |
+| Service & Collector        | [Service Configuration](service.md)            |
+| Diagnostics Subsystem      | [Diagnostics Configuration](diagnose.md)       |
+| Architecture Overview      | [Build Architecture](../architecture/build.md) |
+
+---
+
+## 9 · Document Governance
+
+- Licensed under Apache 2.0 License

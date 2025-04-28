@@ -1,3 +1,6 @@
+// Package core provides foundational types and utilities for the SREDIAG system.
+//
+// This file provides the CLI command for displaying version/build information and related utilities.
 package core
 
 import (
@@ -6,7 +9,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewVersionCmd creates a new command to display version information
+// NewVersionCmd creates a new Cobra command to display SREDIAG version information.
+//
+// Usage:
+//   - Add this command to your root Cobra CLI to provide a `srediag version` subcommand.
+//   - Prints the semantic version, commit hash, and build date of the running SREDIAG binary.
+//
+// Best Practices:
+//   - Always ensure build info is injected at build time for production releases.
+//   - Use this command for all version reporting to ensure consistency.
+//
+// TODO:
+//   - Consider adding more detailed build metadata (Go version, platform, etc).
+//   - Consider supporting JSON or machine-readable output for CI/CD.
+//
+// Redundancy/Refactor:
+//   - No redundancy; this is the canonical version command for SREDIAG.
 func NewVersionCmd() *cobra.Command {
 	buildInfo := DefaultBuildInfo
 

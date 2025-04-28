@@ -245,3 +245,46 @@ SREDIAG_LOG_LEVEL=debug srediag service reload
 * Plugin sandbox internals – `docs/architecture/plugin-manager.md`
 * Service & Collector YAML – `configuration/service.md`
 * Plugin lifecycle commands – `cli/plugin.md`
+
+---
+
+## Parameter Reference
+
+| YAML Key                | Env Var                    | CLI Flag                |
+|-------------------------|----------------------------|-------------------------|
+| `security.tls.enabled`  | `SREDIAG_TLS_ENABLED`      | `--tls-enabled`         |
+| `security.tls.cert_file`| `SREDIAG_TLS_CERT_FILE`    | `--tls-cert`            |
+| `security.tls.key_file` | `SREDIAG_TLS_KEY_FILE`     | `--tls-key`             |
+| `security.tls.ca_file`  | `SREDIAG_TLS_CA_FILE`      | `--tls-ca`              |
+| `security.auth.type`    | `SREDIAG_AUTH_TYPE`        | `--auth-type`           |
+| `security.rbac.enabled` | `SREDIAG_RBAC_ENABLED`     | `--rbac-enabled`        |
+| `srediag.config`        | `SREDIAG_CONFIG`           | `--config`              |
+
+> **Warning:** Use `--config`/`SREDIAG_CONFIG` only for the main SREDIAG config. Security settings must use the above hierarchical keys/flags.
+
+---
+
+## Discovery Order & Precedence
+
+1. CLI flags (highest)
+2. Environment variables
+3. YAML config file (see discovery order below)
+4. Built-in defaults (lowest)
+
+**Config file discovery order:**
+
+1. `--config <file>` flag (main config)
+2. `SREDIAG_CONFIG` env var (main config)
+3. `/etc/srediag/srediag.yaml`
+4. `$HOME/.srediag/config.yaml`
+5. `./config/srediag.yaml`
+6. `./srediag.yaml`
+
+---
+
+## Best Practices
+
+* Use CLI flags or environment variables for automation and CI/CD.
+* Use YAML for persistent, version-controlled configuration.
+* Always check the effective config with `srediag security --print-config` (if available).
+* Unknown YAML keys are logged at debug level and ignored for forward compatibility.

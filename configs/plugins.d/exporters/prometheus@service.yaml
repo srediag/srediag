@@ -1,0 +1,8 @@
+endpoint: 0.0.0.0:9090
+namespace: srediag
+const_labels:
+  deployment_environment: test
+send_timestamps: true
+metric_expiration: 180m
+resource_to_telemetry_conversion:
+  enabled: true 

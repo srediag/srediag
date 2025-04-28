@@ -1,0 +1,3 @@
+default_duration: 30s                # Default profiling duration
+max_duration: 300s                   # Maximum allowed duration
+allowed_users: []                    # Empty = no restrictions 

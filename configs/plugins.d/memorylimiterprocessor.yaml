@@ -1,0 +1,2 @@
+check_interval: 1s
+limit_mib: 1024 

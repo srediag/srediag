@@ -9,30 +9,81 @@ import (
 	"github.com/srediag/srediag/internal/core"
 )
 
-// MakeBuilder handles the build process integrating with Makefile
+// Package build provides the build orchestration layer for SREDIAG.
+//
+// This file defines the MakeBuilder, which integrates the build process with Makefile-based workflows.
+// MakeBuilder uses BuildManager for plugin orchestration and provides methods for building and installing plugins.
+//
+// Usage:
+//   - Use MakeBuilder to coordinate plugin builds and main project builds via Makefile.
+//   - All plugin orchestration is delegated to BuildManager.
+//   - All config loading should use LoadBuildConfig for schema compliance and validation.
+//
+// Best Practices:
+//   - Always check for errors from build and install methods.
+//   - Use logger for all error and status reporting.
+//   - Prefer environment variable SREDIAG_PLUGIN_DIR to override default plugin install location.
+//
+// TODO:
+//   - Add context.Context to all methods for cancellation and timeouts.
+//   - Add more granular error reporting for build and install steps.
+
+// MakeBuilder handles the build process integrating with Makefile.
+//
+// MakeBuilder is responsible for:
+//   - Building all plugins and the main project using Makefile targets.
+//   - Delegating plugin orchestration to BuildManager.
+//   - Installing built plugins to the appropriate directory.
+//
+// Usage:
+//   - Instantiate with NewMakeBuilder, providing logger, working directory, config path, and output directory.
+//   - Call BuildAll to build all plugins and the main project.
+//   - Call BuildPlugin to build a single plugin and the main project.
+//   - Call InstallPlugins to copy built plugins to the install directory.
 type MakeBuilder struct {
-	logger        *core.Logger
-	workDir       string
-	configPath    string
-	outputDir     string
-	pluginBuilder IBuilder
+	logger       *core.Logger
+	workDir      string
+	configPath   string
+	outputDir    string
+	buildManager *BuildManager
 }
 
-// NewMakeBuilder creates a new make builder
+// NewMakeBuilder creates a new MakeBuilder.
+//
+// Parameters:
+//   - logger: Logger for status and error reporting.
+//   - workDir: Working directory for Makefile operations.
+//   - configPath: Path to build configuration file.
+//   - outputDir: Directory where build artifacts are placed.
+//
+// Returns:
+//   - *MakeBuilder: A new MakeBuilder instance.
 func NewMakeBuilder(logger *core.Logger, workDir, configPath, outputDir string) *MakeBuilder {
 	return &MakeBuilder{
-		logger:        logger,
-		workDir:       workDir,
-		configPath:    configPath,
-		outputDir:     outputDir,
-		pluginBuilder: NewPluginBuilder(logger, configPath, outputDir),
+		logger:       logger,
+		workDir:      workDir,
+		configPath:   configPath,
+		outputDir:    outputDir,
+		buildManager: NewBuildManager(logger, outputDir),
 	}
 }
 
-// BuildAll builds the main project and all plugins
+// BuildAll builds the main project and all plugins.
+//
+// This method:
+//   - Builds all plugins using BuildManager.BuildAll.
+//   - Runs 'make clean' and 'make build' in the working directory.
+//   - Installs built plugins to the install directory.
+//
+// Returns:
+//   - error: If any build or install step fails, returns a detailed error.
+//
+// Side Effects:
+//   - Modifies files in the output and install directories.
+//   - Runs external Makefile commands.
 func (b *MakeBuilder) BuildAll() error {
 	// First build plugins to ensure they're available
-	if err := b.pluginBuilder.BuildAll(); err != nil {
+	if err := b.buildManager.BuildAll(); err != nil {
 		b.logger.Error("Failed to build plugins", core.ZapError(err))
 		return err
 	}
@@ -66,7 +117,18 @@ func (b *MakeBuilder) BuildAll() error {
 	return nil
 }
 
-// InstallPlugins copies built plugins to the installation directory
+// InstallPlugins copies built plugins to the installation directory.
+//
+// This method:
+//   - Determines the install directory (default: /etc/srediag/plugins, overridable by SREDIAG_PLUGIN_DIR).
+//   - Copies all .so files from the output directory to the install directory.
+//   - Logs all errors and successful installations.
+//
+// Returns:
+//   - error: If directory creation, reading, or file copy fails, returns a detailed error.
+//
+// Side Effects:
+//   - Creates directories and copies files on the filesystem.
 func (b *MakeBuilder) InstallPlugins() error {
 	// Default plugin installation directory
 	installDir := filepath.Join("/etc/srediag", "plugins")
@@ -116,10 +178,26 @@ func (b *MakeBuilder) InstallPlugins() error {
 	return nil
 }
 
-// BuildPlugin builds a single plugin and the main project
-func (b *MakeBuilder) BuildPlugin(name string, cfg PluginConfig, compType core.ComponentType) error {
-	// Build single plugin
-	if err := b.pluginBuilder.BuildPlugin(name, cfg, compType); err != nil {
+// BuildPlugin builds a single plugin and the main project.
+//
+// This method:
+//   - Builds a single plugin using BuildManager.BuildPlugin.
+//   - Runs 'make build' in the working directory.
+//   - Installs the built plugin to the install directory.
+//
+// Parameters:
+//   - name: Name of the plugin to build.
+//   - compType: Component type of the plugin.
+//
+// Returns:
+//   - error: If any build or install step fails, returns a detailed error.
+//
+// Side Effects:
+//   - Modifies files in the output and install directories.
+//   - Runs external Makefile commands.
+func (b *MakeBuilder) BuildPlugin(name string, compType core.ComponentType) error {
+	// Build single plugin using BuildManager
+	if err := b.buildManager.BuildPlugin(string(compType), name); err != nil {
 		b.logger.Error("Failed to build plugin",
 			core.ZapString("name", name),
 			core.ZapError(err))
@@ -144,3 +222,6 @@ func (b *MakeBuilder) BuildPlugin(name string, cfg PluginConfig, compType core.C
 
 	return nil
 }
+
+// Note: YAML/go.mod sync is handled by UpdateBuilderYAMLVersions in update.go
+// Note: All build config loading should use LoadBuildConfig for validation and schema compliance.

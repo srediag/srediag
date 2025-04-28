@@ -4,29 +4,15 @@ package commands
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/srediag/srediag/internal/core"
 )
 
-const (
-	// Environment variables
-	envConfigPath = "SREDIAG_CONFIG"
-	envLogLevel   = "SREDIAG_LOG_LEVEL"
-	envLogFormat  = "SREDIAG_LOG_FORMAT"
-)
-
-var defaultConfigPaths = []string{
-	"/etc/srediag/config/srediag.yaml",
-	"$HOME/.srediag/config.yaml",
-	"./config/srediag.yaml",
-	"./srediag.yaml",
-}
-
 // OutputFormat standardizes command output formats
+// Only CLI wiring and context setup should be present in this file.
 type OutputFormat struct {
 	Format     string // json, yaml, table
 	Quiet      bool   // only output essential information
@@ -36,9 +22,7 @@ type OutputFormat struct {
 
 // NewRootCommand creates and returns the root command for SREDIAG CLI
 func NewRootCommand(ctx *core.AppContext) *cobra.Command {
-	var outputOpts OutputFormat
-	var logLevelFlag string
-	var logFormatFlag string
+	var printConfig bool
 
 	cmd := &cobra.Command{
 		Use:   "srediag",
@@ -49,51 +33,49 @@ comprehensive system monitoring and automated analysis.
 It provides a flexible plugin architecture for extending monitoring capabilities
 and integrates with various observability backends.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Determine log level and format (priority: flag > env > config > default)
-			logLevel := logLevelFlag
-			if logLevel == "" {
-				logLevel = os.Getenv(envLogLevel)
+			// 1. Bind Viper to Cobra flags
+			if err := viper.BindPFlags(cmd.Flags()); err != nil {
+				return fmt.Errorf("failed to bind flags: %w", err)
 			}
-			if logLevel == "" {
-				logLevel = ctx.Config.LogLevel
-			}
-			if logLevel == "" {
-				logLevel = "info"
+			if err := viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+				return fmt.Errorf("failed to bind persistent flags: %w", err)
 			}
 
-			logFormat := logFormatFlag
-			if logFormat == "" {
-				logFormat = os.Getenv(envLogFormat)
-			}
-			if logFormat == "" {
-				logFormat = ctx.Config.LogFormat
-			}
-			if logFormat == "" {
-				logFormat = "console"
+			// 2. Bind unique env vars for root config
+			if err := viper.BindEnv("srediag.config", "SREDIAG_CONFIG"); err != nil {
+				return fmt.Errorf("failed to bind env SREDIAG_CONFIG: %w", err)
 			}
 
-			loggerCfg := &core.Logger{
-				Level:            logLevel,
-				Format:           logFormat,
+			// 3. Load config with overlays (flags > env > YAML > built-ins)
+			var config core.Config
+			if err := core.LoadConfigWithOverlay(&config, viperAllSettings()); err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			if err := core.ValidateConfig(&config); err != nil {
+				return fmt.Errorf("invalid config: %w", err)
+			}
+			ctx.Config = &config
+
+			// 4. Bootstrap logger
+			logger, err := core.NewLogger(&core.Logger{
+				Level:            viper.GetString("log-level"),
+				Format:           viper.GetString("log-format"),
 				OutputPaths:      []string{"stdout"},
 				ErrorOutputPaths: []string{"stderr"},
-				Development:      false,
-			}
-			logger, err := core.NewLogger(loggerCfg)
+			})
 			if err != nil {
-				return fmt.Errorf("failed to create logger: %w", err)
+				return fmt.Errorf("failed to initialize logger: %w", err)
 			}
 			ctx.Logger = logger
+			ctx.BuildInfo = core.DefaultBuildInfo
+			ctx.ComponentManager = core.NewComponentManager(logger)
 
-			// Find config file
-			configPath := findConfigFile(ctx.GetConfig().PluginsDir)
-			if configPath == "" {
-				ctx.Logger.Warn("Config file not found in any of the default locations, using defaults")
-			} else {
-				if err := ctx.Config.Load(configPath); err != nil {
-					ctx.Logger.Error(fmt.Sprintf("Failed to load config file: path=%s, err=%v", configPath, err))
-					return err
+			// 5. Print config and exit if requested
+			if printConfig {
+				if err := core.PrintEffectiveConfig(&config); err != nil {
+					return fmt.Errorf("failed to print config: %w", err)
 				}
+				os.Exit(0)
 			}
 			return nil
 		},
@@ -103,59 +85,40 @@ and integrates with various observability backends.`,
 		SilenceUsage: true,
 	}
 
-	// Add persistent flags
-	cmd.PersistentFlags().StringVar(&ctx.Config.PluginsDir, "config", ctx.Config.PluginsDir, "path to configuration file (env: SREDIAG_CONFIG)")
-	cmd.PersistentFlags().StringVar(&outputOpts.Format, "output", "table", "output format (json, yaml, table)")
-	cmd.PersistentFlags().BoolVar(&outputOpts.Quiet, "quiet", false, "only output essential information")
-	cmd.PersistentFlags().BoolVar(&outputOpts.NoColor, "no-color", false, "disable color output")
-	cmd.PersistentFlags().StringVar(&outputOpts.OutputFile, "output-file", "", "write output to file")
-	cmd.PersistentFlags().StringVar(&logLevelFlag, "log-level", "", "set log level (env: SREDIAG_LOG_LEVEL, config: log_level)")
-	cmd.PersistentFlags().StringVar(&logFormatFlag, "log-format", "", "set log format: json|console (env: SREDIAG_LOG_FORMAT, config: log_format)")
+	// Add persistent flags (all global/common options)
+	cmd.PersistentFlags().String("config", "", "path to SREDIAG configuration file (env: SREDIAG_CONFIG)")
+	cmd.PersistentFlags().String("output", "table", "output format (json, yaml, table)")
+	cmd.PersistentFlags().Bool("quiet", false, "only output essential information")
+	cmd.PersistentFlags().Bool("no-color", false, "disable color output")
+	cmd.PersistentFlags().String("output-file", "", "write output to file")
+	cmd.PersistentFlags().String("log-level", "", "set log level (env: SREDIAG_LOG_LEVEL, config: log_level)")
+	cmd.PersistentFlags().String("log-format", "", "set log format: json|console (env: SREDIAG_LOG_FORMAT, config: log_format)")
+	cmd.PersistentFlags().BoolVar(&printConfig, "print-config", false, "print the effective merged config and exit")
+
+	if err := viper.BindPFlag("srediag.config", cmd.PersistentFlags().Lookup("config")); err != nil {
+		return nil // or handle/log the error as appropriate for your context
+	}
 
 	// Add subcommands
 	cmd.AddCommand(
-		newStartCmd(ctx),
-		core.NewVersionCmd(),
-		newDiagnoseCmd(ctx),
 		NewBuildCmd(ctx),
+		newDiagnoseCmd(ctx),
 		newPluginCmd(ctx),
+		NewServiceCmd(ctx),
 	)
 
 	return cmd
 }
 
-// findConfigFile searches for the config file in default locations
-func findConfigFile(configPath string) string {
-	// Check explicit config path first
-	if configPath != "" {
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath
+// viperAllSettings returns a map of all viper settings for overlay.
+func viperAllSettings() map[string]string {
+	settings := make(map[string]string)
+	for k, v := range viper.AllSettings() {
+		if s, ok := v.(string); ok {
+			settings[k] = s
 		}
 	}
-
-	// Check environment variable
-	if envPath := os.Getenv(envConfigPath); envPath != "" {
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath
-		}
-	}
-
-	// Expand $HOME in default paths
-	home, _ := os.UserHomeDir()
-
-	// Check default locations
-	for _, path := range defaultConfigPaths {
-		expandedPath := os.ExpandEnv(path)
-		expandedPath = filepath.Clean(filepath.Join(filepath.Dir(expandedPath), filepath.Base(expandedPath)))
-		if strings.Contains(expandedPath, "$HOME") {
-			expandedPath = strings.ReplaceAll(expandedPath, "$HOME", home)
-		}
-		if _, err := os.Stat(expandedPath); err == nil {
-			return expandedPath
-		}
-	}
-
-	return ""
+	return settings
 }
 
 // Execute creates the root command with the given context and executes it
