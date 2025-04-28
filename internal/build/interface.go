@@ -22,9 +22,9 @@
 //   - If only one implementation exists, consider if the interface is necessary.
 //
 // TODO(P-02 Phase 1): Implement Manifest v1 JSON schema (see TODO.md P-02, ETA 2025-05-31)
-// TODO: Enforce manifest generation for plugins (SHA-256, cosign signature reference) (see architecture/build.md §3)
-// TODO: Validate ABI compatibility using Go symbol tables (see architecture/build.md §3)
-// TODO: Fail build if manifest or ABI check fails (see architecture/build.md §3)
+// TODO: Enforce manifest generation for plugins (SHA-256, cosign signature reference) (see docs/architecture/build.md §3)
+// TODO: Validate ABI compatibility using Go symbol tables (see docs/architecture/build.md §3)
+// TODO: Fail build if manifest or ABI check fails (see docs/architecture/build.md §3)
 package build
 
 import "github.com/srediag/srediag/internal/core"

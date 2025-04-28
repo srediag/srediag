@@ -25,11 +25,11 @@
 //   - Logger fallback and outputDir extraction are repeated in every function; could be DRYed up.
 //   - All CLI entrypoints follow a similar pattern; consider a generic wrapper for error/log handling.
 //
-// TODO: Implement 'srediag build all' and 'srediag build plugin' commands using YAML spec (see architecture/build.md §2)
-// TODO: Output static binary and plugin bundles as described (see architecture/build.md §2)
-// TODO: Integrate SBOM, cosign signing, and SLSA attestation in build pipeline (see architecture/build.md §3)
-// TODO: Implement standardized error codes for build CLI (see architecture/build.md §7)
-// TODO: Provide actionable error messages for common build pitfalls (see architecture/build.md §7)
+// TODO: Implement 'srediag build all' and 'srediag build plugin' commands using YAML spec (see docs/architecture/build.md §2)
+// TODO: Output static binary and plugin bundles as described (see docs/architecture/build.md §2)
+// TODO: Integrate SBOM, cosign signing, and SLSA attestation in build pipeline (see docs/architecture/build.md §3)
+// TODO: Implement standardized error codes for build CLI (see docs/architecture/build.md §7)
+// TODO: Provide actionable error messages for common build pitfalls (see docs/architecture/build.md §7)
 // TODO: Implement granular validation for all nested config sections.
 // TODO: Add a Redact/Sanitize method to Config to prevent logging secrets.
 // TODO: Integrate StrictYAMLUnmarshal into LoadConfigWithOverlay for schema safety.

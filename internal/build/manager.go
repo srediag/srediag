@@ -2,6 +2,9 @@ package build
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/srediag/srediag/internal/core"
 )
@@ -75,7 +78,49 @@ func (m *BuildManager) LoadConfig() (*BuilderConfig, error) {
 // Side Effects:
 //   - Intended to modify files in the output directory (not yet implemented).
 func (m *BuildManager) BuildAll() error {
-	return fmt.Errorf("buildAllPlugins not yet implemented in plugin.go")
+	cfg, err := LoadBuildConfig(nil)
+	if err != nil {
+		return fmt.Errorf("failed to load build config: %w", err)
+	}
+	outputDir := cfg.Dist.OutputPath
+	if outputDir == "" {
+		outputDir = "bin"
+	}
+	pluginRoot := filepath.Join(outputDir, "plugins")
+	failed := false
+
+	for _, typ := range []core.ComponentType{core.TypeReceiver, core.TypeProcessor, core.TypeExporter, core.TypeExtension} {
+		for name, plugin := range cfg.Components[typ] {
+			if plugin.Path == "" {
+				m.logger.Error("No path specified for plugin", core.ZapString("type", string(typ)), core.ZapString("name", name))
+				failed = true
+				continue
+			}
+			outDir := filepath.Join(pluginRoot, string(typ), name)
+			if err := os.MkdirAll(outDir, 0755); err != nil {
+				m.logger.Error("Failed to create dir", core.ZapString("dir", outDir), core.ZapError(err))
+				failed = true
+				continue
+			}
+			outFile := filepath.Join(outDir, name+".so")
+			cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", outFile, plugin.Path)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			m.logger.Info("Building plugin", core.ZapString("type", string(typ)), core.ZapString("name", name))
+			if err := cmd.Run(); err != nil {
+				m.logger.Error("Failed to build plugin", core.ZapString("type", string(typ)), core.ZapString("name", name), core.ZapError(err))
+				failed = true
+				continue
+			}
+			m.logger.Info("Built plugin", core.ZapString("type", string(typ)), core.ZapString("name", name), core.ZapString("output", outFile))
+		}
+	}
+
+	if failed {
+		return fmt.Errorf("one or more plugins failed to build")
+	}
+	m.logger.Info("All plugins built successfully", core.ZapString("dir", pluginRoot))
+	return nil
 }
 
 // BuildPlugin builds a single plugin by name and type.
@@ -90,7 +135,38 @@ func (m *BuildManager) BuildAll() error {
 // Side Effects:
 //   - Intended to modify files in the output directory (not yet implemented).
 func (m *BuildManager) BuildPlugin(pluginType, pluginName string) error {
-	return fmt.Errorf("buildSinglePlugin not yet implemented in plugin.go")
+	cfg, err := LoadBuildConfig(nil)
+	if err != nil {
+		return fmt.Errorf("failed to load build config: %w", err)
+	}
+	outputDir := cfg.Dist.OutputPath
+	if outputDir == "" {
+		outputDir = "bin"
+	}
+	pluginRoot := filepath.Join(outputDir, "plugins")
+	typ := core.ComponentType(pluginType)
+	plugin, ok := cfg.Components[typ][pluginName]
+	if !ok {
+		return fmt.Errorf("plugin %s/%s not found in config", pluginType, pluginName)
+	}
+	if plugin.Path == "" {
+		return fmt.Errorf("no path specified for plugin %s/%s", pluginType, pluginName)
+	}
+	outDir := filepath.Join(pluginRoot, pluginType, pluginName)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return fmt.Errorf("failed to create dir %s: %w", outDir, err)
+	}
+	outFile := filepath.Join(outDir, pluginName+".so")
+	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", outFile, plugin.Path)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	m.logger.Info("Building plugin", core.ZapString("type", pluginType), core.ZapString("name", pluginName))
+	if err := cmd.Run(); err != nil {
+		m.logger.Error("Failed to build plugin", core.ZapString("type", pluginType), core.ZapString("name", pluginName), core.ZapError(err))
+		return fmt.Errorf("failed to build plugin %s/%s: %w", pluginType, pluginName, err)
+	}
+	m.logger.Info("Built plugin", core.ZapString("type", pluginType), core.ZapString("name", pluginName), core.ZapString("output", outFile))
+	return nil
 }
 
 // Generate produces plugin scaffold code (no compile).

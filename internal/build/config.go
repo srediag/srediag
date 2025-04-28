@@ -21,10 +21,10 @@
 // TODO: Fail service startup if any unrecognized components are found in the pipeline YAML.
 // TODO: Implement a utility to synchronize versions between go.mod and build YAML.
 // TODO: Validate module versions and provide a diff/apply feature with --write flag.
-// TODO: Enforce exact Go module path and pinned version for all components in build YAML (see architecture/build.md §1.1)
-// TODO: Fail service startup if unrecognized components appear in pipeline YAML (see architecture/build.md §1.1)
-// TODO: Implement version synchronization utility between go.mod and build YAML (see architecture/build.md §4)
-// TODO: Validate module versions and generate diff/apply with --write (see architecture/build.md §4)
+// TODO: Enforce exact Go module path and pinned version for all components in build YAML (see docs/architecture/build.md §1.1)
+// TODO: Fail service startup if unrecognized components appear in pipeline YAML (see docs/architecture/build.md §1.1)
+// TODO: Implement version synchronization utility between go.mod and build YAML (see docs/architecture/build.md §4)
+// TODO: Validate module versions and generate diff/apply with --write (see docs/architecture/build.md §4)
 package build
 
 import (
@@ -32,6 +32,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	yaml "gopkg.in/yaml.v3"
 
 	"github.com/srediag/srediag/internal/core"
 )
@@ -114,13 +116,29 @@ type ModuleConfig struct {
 //   - Add stricter schema validation and error reporting.
 //   - Remove legacy conversion after migration.
 func LoadBuildConfig(cliFlags map[string]string) (*BuilderConfig, error) {
-	var legacy LegacyConfig
-	// Use the canonical loader with overlays and correct precedence
-	// Always search in configs/ for build configs
-	if err := core.LoadConfigWithOverlay(&legacy, cliFlags, core.WithConfigPathSuffix("build")); err != nil {
+	var raw map[string]interface{}
+	if err := core.LoadConfigWithOverlay(&raw, cliFlags, core.WithConfigPathSuffix("build")); err != nil {
 		return nil, err
 	}
-	// Validate required fields
+
+	// Try canonical format first
+	b, err := yaml.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config for canonical check: %w", err)
+	}
+	var canonical BuilderConfig
+	if err := yaml.Unmarshal(b, &canonical); err == nil {
+		dist := canonical.Dist
+		if dist.Name != "" && dist.OtelColVersion != "" && dist.OutputPath != "" && len(canonical.Components) > 0 {
+			return &canonical, nil
+		}
+	}
+
+	// Fallback: try legacy format
+	var legacy LegacyConfig
+	if err := yaml.Unmarshal(b, &legacy); err != nil {
+		return nil, fmt.Errorf("failed to parse build config as canonical or legacy: %w", err)
+	}
 	if legacy.Dist.Name == "" || legacy.Dist.Version == "" || legacy.Dist.OutputPath == "" {
 		return nil, fmt.Errorf("dist.name, dist.version, and dist.output_path are required in build config")
 	}

@@ -78,6 +78,10 @@ func NewLogger(cfg *Logger) (*Logger, error) {
 	if cfg == nil {
 		cfg = defaultConfig()
 	}
+	// Patch: Default to 'console' if Format is empty
+	if cfg.Format == "" {
+		cfg.Format = "console"
+	}
 
 	// Create basic encoder config
 	encoderConfig := zapcore.EncoderConfig{
