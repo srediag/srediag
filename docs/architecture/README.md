@@ -1,127 +1,176 @@
-# SREDIAG — OBSERVO Diagnostics Agent
+# SREDIAG Architecture
 
-> Go-native diagnostics & observability agent • built on the OpenTelemetry Collector  
-> Maintained by **Integra SH**   •   Contact: <marlon@integra.sh>
-
-<div align="center">
-
-| Build | Go | Docs | Licence |
-| :---: | :-: | :--: | :-----: |
-| ![status](https://img.shields.io/badge/status-alpha-blue) | ![go](https://img.shields.io/badge/go-1.24.x-blue) | [docs ↗](./docs/README.md) | MIT |
-
-</div>
+This document provides the foundational architectural concepts underpinning **SREDIAG**, detailing the system structure, subsystem interactions, and especially the central role of the `internal/core` package, critical for consistent component management and operation across the project.
 
 ---
 
-SREDIAG is the **edge data-plane** of the OBSERVO reliability platform.  
-It wraps the upstream **OpenTelemetry Collector** and adds, step-by-step, the capabilities MSPs need at scale: hot-swappable plugins, content-aware deduplication, ITIL-aligned CMDB drift, and strict tenant isolation.
+## 1 · High-Level System Overview
 
-This repository is **work-in-progress**. The table below names what is **already wired**, what is **actively being coded**, and what is **road-mapped** for later milestones.
-
-For the full product spec see **`docs/specification.md`** (generated from the canonical draft in `docs/architecture/`).
-
----
-
-## 1 — Feature Matrix
-
-| Area | Implemented (`main`) | In Development | Planned |
-| :-- | :-- | :-- | :-- |
-| Collector bootstrap | ✅ Static build (`build/otelcol-builder.yaml`) | — | — |
-| Plugin framework | ✅ MVP hot-loader (`internal/plugin/…`) | 🔴 IPC hardening · seccomp | — |
-| Diagnostics CLI | ✅ Skeleton commands (`cmd/`) | 🟠 System/Perf/Security modules (see `TODO` tags) | — |
-| Receivers / Processors | 🚧 OTLP & Nop receivers | 🟠 Journald & System receivers · Batch/MemLimiter processors | ⏳ Vector-hash dedup processor |
-| Exporters | 🚧 OTLP exporter | 🟠 ClickHouse exporter | ⏳ Cloud-native sinks (S3, GCS) |
-| CMDB drift | — | — | ⏳ Phase 3 |
-| Multi-tenancy (SPIFFE, quotas) | — | — | ⚪ Phase 4 |
-
-Legend — **✅ shipped** • **🔴 active** • **🟠 queued** • **⏳ designed** • **⚪ backlog**
-
----
-
-## 2 — Documentation Map
-
-| Topic | Path |
-| :-- | :-- |
-| **Architecture overview** | `docs/architecture/README.md` |
-| OpenTelemetry integration | `docs/architecture/opentelemetry.md` |
-| Security design | `docs/architecture/security.md` |
-| **Getting started** (install, config, first run) | `docs/getting-started/` |
-| Configuration reference | `docs/configuration/` |
-| Command-line help | `docs/cli/` |
-| Full spec & roadmap | `docs/specification.md` |
-
-All doc pages build locally with `mkdocs serve`.
-
----
-
-## 3 — Quick Start (developer build)
-
-```bash
-# 1 Clone & build (needs Go ≥ 1.24)
-git clone https://github.com/srediag/srediag
-cd srediag
-make build            # wraps 'mage build'
-
-# 2 Run the collector with a demo config
-./bin/srediag --config configs/otel-config.yaml
-
-# 3 Hot-load a sample plugin (once compiled)
-curl -X POST --unix-socket /var/run/srediag.sock \
-     -F file=@plugins/example.so http://plugin.load
+```ascii
+┌───────────────────────────────────────────────────────────────────────┐
+│                          SREDIAG Agent                                │
+│                                                                       │
+│ ┌───────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────┐ │
+│ │ Receivers │──▶│  Processors   │──▶│   Exporters   │──▶│ ObservO CP│ │
+│ └───────────┘   └───────────────┘   └───────────────┘   └───────────┘ │
+│      ▲                 ▲                   ▲                          │
+│      │                 │                   │                          │
+│ ┌─────────────┐  ┌───────────────┐  ┌───────────────┐                 │
+│ │ Plugin      │  │ Deduplication │  │ CMDB & Drift  │                 │
+│ │ Manager     │  │ Compression   │  │ Detection     │                 │
+│ │(hot-swap,   │  │(xxHash,LZ4,ZSTD│ │(fingerprint,  │                 │
+│ │ IPC,seccomp)│  │ RocksDB cache) │ │delta tracking)│                 │
+│ └─────────────┘  └───────────────┘  └───────────────┘                 │
+│      ▼                 ▼                   ▼                          │
+│ ┌───────────────────────────────────────────────────────────┐         │
+│ │ Resource & Governance Controller                          │         │
+│ │(Cgroups, Memory Guard, Quotas, Seccomp/AppArmor sandbox)  │         │
+│ └───────────────────────────────────────────────────────────┘         │
+│                      │                                                │
+│            Self-Metrics & Observability                               │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-### Container
+**Key Architectural Patterns:**
 
-```bash
-make docker   # builds multi-arch distroless image
+- **Collector Pipeline**: Receivers → Processors → Exporters → ObservO Control Plane.
+- **Plugin System**: Dynamic extension points for Receivers, Processors, Exporters, and CLI diagnostics.
+- **Governance Layer**: Strict resource isolation, quota enforcement, and security hardening through Cgroups and seccomp.
+- **Self-Observability**: Metrics, health endpoints, and tracing via OpenTelemetry zPages.
+
+---
+
+## 2 · Core Package Architecture (`internal/core`)
+
+The **Core Package** is the foundational library shared across all SREDIAG commands and plugins. It abstracts essential functionality like configuration management, logging, component registration, lifecycle, and operational context management.
+
+### 2.1 · Configuration Loader Architecture
+
+The Configuration Loader provides a unified, consistent approach to configuration management for both CLI and daemon modes.
+
+- **Configuration Sources** (in order of priority):
+  1. **CLI Flags**
+  2. **Environment Variables**
+  3. **YAML Configuration** (`srediag.yaml` or specified via flag)
+  4. **Built-in Defaults**
+
+- **Validation & Reloading**:
+  - Performs rigorous validation of configuration at startup and on dynamic reload (via `SIGHUP`).
+  - Supports hierarchical configuration structure, clearly separating service, plugins, logging, security, and collector settings.
+
+- **Dynamic Hot-Reloading**:
+  - On `SIGHUP`, the runtime seamlessly applies new configuration values without downtime.
+
+---
+
+### 2.2 · Logging System
+
+Unified logging via Zap across CLI and Service components:
+
+- **Bootstrap Stage**:
+  - Initial minimal logger setup (controlled by ENV variables: `SREDIAG_LOG_LEVEL`, `SREDIAG_LOG_FORMAT`).
+- **Runtime Stage**:
+  - Reconfigures logging as per loaded YAML config.
+- **Consistency**:
+  - All components share the same enriched logger (version, build metadata).
+
+---
+
+### 2.3 · Component Registry & Manager
+
+Provides a robust, type-safe component registration system supporting built-in Collector core components and plugins.
+
+- **Factory Registration**:
+  - Collectors register components at build-time using the registry pattern, ensuring uniqueness and proper type adherence.
+- **Component Manager**:
+  - Dynamically retrieves component factories (receivers, processors, exporters, extensions) to build pipelines or invoke CLI plugins.
+  - Facilitates dynamic plugin loading and lifecycle management.
+
+---
+
+### 2.4 · Build Information & Versioning
+
+Captures detailed metadata about the running binary:
+
+- Embeds CalVer, Git commit SHA, Go runtime version, OTel Collector version.
+- Accessible via `srediag version` CLI and embedded within observability metrics and logs.
+
+---
+
+### 2.5 · Application Context (`AppContext`)
+
+Encapsulates core services required across the application:
+
+```go
+type AppContext struct {
+    Logger           *zap.Logger
+    Config           *Config
+    ComponentManager *ComponentManager
+    BuildInfo        BuildInfo
+}
 ```
 
-For advanced setups (Helm, K8s Operator) see **`docs/getting-started/installation.md`**.
+**Usage Pattern**: Passed explicitly to all command handlers, plugins, and subsystems ensuring consistent runtime behavior and simplified dependency management.
 
 ---
 
-## 4 — Roadmap
+### 2.6 · Runtime Lifecycle & CLI Integration
 
-| Milestone | Deliverable | ETA |
-| :-- | :-- | :-- |
-| **M1** | IPC + `mem_guard.go` | **Jun 2025** |
-| **M2** | Dedup processor + tiered ZSTD/LZ4 | Jul 2025 |
-| **M3** | CMDB drift events | Aug 2025 |
-| **Beta 1** | Helm chart, first public image | Sep 2025 |
+The Core package facilitates lifecycle handling for both CLI and service modes:
 
-Track progress in **GitHub Projects › “SREDIAG Roadmap”**.
+- **CLI Execution Flow**:
 
----
+  ```bash
+  srediag build|plugin|security|diagnose [...]
+  ```
 
-## 5 — Building & Testing
+  - Parses configuration and initializes `AppContext`.
+  - Dispatches to relevant handlers and subcommands.
 
-```bash
-make ci   # lint → unit tests → SBOM → cosign
-```
+- **Service Mode**:
 
-* `golangci-lint` gates every PR  
-* Unit coverage ≥ 80 %  
-* Integration tests run in Kind (`tests/integration`)
+  ```bash
+  srediag service start [...]
+  ```
 
----
-
-## 6 — Contributing
-
-1. Fork → branch → `make ci`.  
-2. Follow the commit style in `CONTRIBUTING.md`.  
-3. Open a PR — we review within 48 h.
-
-Plugins built with [`srediag-plugin-sdk`](docs/cli/README.md#plugin-sdk) are very welcome.
+  - Initializes runtime components and OTel pipelines.
+  - Listens for Unix signals (`SIGHUP` for reload, `SIGTERM` for graceful shutdown, `SIGUSR2` for plugin reload).
 
 ---
 
-## 7 — License
+## 3 · Subsystem Architectural Documents
 
-MIT — see [`LICENSE`](LICENSE).
+| Document                              | Responsibility                                                   |
+|---------------------------------------|------------------------------------------------------------------|
+| [Build Architecture](build.md)        | CI/CD, binary & plugin compilation, versioning, SBOM, cosign signing |
+| [Diagnostics Architecture](diagnose.md)| CLI-driven diagnostics and plugin-based health and performance checks |
+| [Plugin Architecture](plugin.md)      | Hot-swap framework, sandboxing, IPC (shmipc-go), SDK contracts    |
+| [Security Architecture](security.md)  | TLS/mTLS, certificate management, RBAC, runtime sandboxing, compliance |
+| [Service Architecture](service.md)    | Long-running service lifecycle, pipeline orchestration, self-observability |
+
+Each subsystem is described in detail within its dedicated architectural documentation.
 
 ---
 
-## 8 — Contact
+## 4 · Cross-Document Reference
 
-*Mailing list*: <srediag-dev@integra.sh>  
-*Maintainer*: **Marlon Costa** (<marlon@integra.sh>)
+| Component                           | Architecture Document               |
+|-------------------------------------|-------------------------------------|
+| Plugin loading, sandbox, validation | [Plugin Architecture](plugin.md)    |
+| Certificate handling, sandboxing    | [Security Architecture](security.md)|
+| Service lifecycle and management    | [Service Architecture](service.md)  |
+| Build, CI/CD, artifact generation   | [Build Architecture](build.md)      |
+| Diagnostic command & plugin flow    | [Diagnostics Architecture](diagnose.md) |
+
+---
+
+## 5 · Further Reading & Resources
+
+- **Operational Configuration**: [`configuration/README.md`](../configuration/README.md)  
+- **CLI User Guide**: [`cli/README.md`](../cli/README.md)  
+
+---
+
+## 6 · Document Governance
+
+- Documented under the MIT License.  

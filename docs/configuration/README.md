@@ -1,282 +1,224 @@
-# SREDIAG Configuration Guide
+# SREDIAG — Configuration Guide
 
-SREDIAG uses a flexible configuration system that supports multiple formats and sources,
-with OpenTelemetry integration at its core.
+SREDIAG is an extensible agent whose behaviour is defined by:
 
-## Table of Contents
+1. A **core YAML** (`srediag.yaml`) – controls services, logging,
+   security, plugin directories.
+2. An **optional collector YAML** (`srediag-service.yaml`) – standard
+   OpenTelemetry pipelines for logs/metrics/traces.
+3. **Environment variables + command-line flags** that override both
+   at runtime.
 
-1. [Overview](#overview)
-2. [Configuration Files](#configuration-files)
-3. [Environment Variables](#environment-variables)
-4. [Command Line Arguments](#command-line-arguments)
-5. [OpenTelemetry Configuration](#opentelemetry-configuration)
-6. [Examples](#examples)
-7. [Best Practices](#best-practices)
+| Layer | File / Source | Applies To | Can be absent? |
+| :---- | :------------ | :--------- | :------------- |
+| **1** | Command-line flags | CLI + Service | Yes |
+| **2** | Environment variables | CLI + Service | Yes |
+| **3** | `srediag.yaml` | CLI + Service | Yes (defaults kick in) |
+| **4** | `srediag-service.yaml` | Service only | Yes (if `collector.enabled=false`) |
 
-## Overview
+---
 
-SREDIAG's configuration system is built on the following principles:
+## 1 · File Locations & Discovery
 
-- Hierarchical configuration with inheritance
-- Multiple format support (YAML, JSON, TOML)
-- Environment variable overrides
-- Dynamic configuration reloading
-- OpenTelemetry integration
-
-## Configuration Files
-
-### Main Configuration
-
-The main configuration file (`srediag.yaml`) defines core settings:
-
-```yaml
-# SREDIAG Configuration
-version: "v0.1.0"
-
-# Service settings
-service:
-  name: "srediag"
-  environment: "${SREDIAG_ENV:-production}"
-  port: "${SREDIAG_PORT:-8080}"
-
-# Collector settings
-collector:
-  enabled: true
-  config_path: "configs/otel-config.yaml"
-  memory_limit_mib: 1024
-  cpu_limit_cores: 2
-
-# Application logging
-logging:
-  level: "${LOG_LEVEL:-info}"
-  format: "${LOG_FORMAT:-json}"
-  file:
-    enabled: "${LOG_FILE_ENABLED:-false}"
-    path: "${LOG_FILE_PATH:-/var/log/srediag/srediag.log}"
-
+```text
+/etc/srediag/
+├─ srediag.yaml             # Core (always parsed if present)
+├─ srediag-service.yaml     # OTel pipeline (service mode)
+└─ plugins/                 # .so artifacts (optional)
 ```
 
-### Component Configuration
+Discovery order for `srediag.yaml`:
 
-Component-specific configurations are stored in separate files:
+1. `--config <file>` flag  
+2. `SREDIAG_CONFIG` env var  
+3. First existing path in  
+   `/etc/srediag/srediag.yaml` → `$HOME/.srediag/config.yaml` →
+   `./config/srediag.yaml` → `./srediag.yaml`
+
+---
+
+## 2 · Core YAML (`srediag.yaml`) Reference
 
 ```yaml
-# otel-config.yaml
+service:
+  name: srediag
+  port: 8080                       # HTTP UI / healthz
+  environment: prod                # free-form tag
+
+logging:
+  level: info                      # debug|info|warn|error
+  format: console                  # console|json
+
+security:
+  tls:
+    enabled: true
+    cert_file: /etc/srediag/cert.pem
+    key_file:  /etc/srediag/key.pem
+
+collector:                          # Parsed **only** in service mode
+  enabled: true
+  config_path: /etc/srediag/srediag-service.yaml
+  memory_limit_mib: 1024
+
+plugins:
+  dir: /var/lib/srediag/plugins
+  enabled:                         # pre-load on start
+    - processor/vectorhashprocessor
+```
+
+Unknown keys are ignored (logged at `debug` level), allowing forward
+compatibility.
+
+---
+
+## 3 · Collector YAML (`srediag-service.yaml`)
+
+Follows the upstream **OpenTelemetry Collector v0.124.0** schema.
+Typical snippet 👇
+
+```yaml
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
 
 processors:
   batch:
-    timeout: 1s
-    send_batch_size: 1024
-
-exporters:
-  prometheus:
-    endpoint: 0.0.0.0:9090
-
-service:
-  pipelines:
-    metrics:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [prometheus]
-```
-
-## Environment Variables
-
-Environment variables override file configurations:
-
-```bash
-# Core settings
-export SREDIAG_SERVICE_NAME=myservice
-export SREDIAG_SERVICE_ENV=staging
-export SREDIAG_PORT=9090
-
-# Telemetry settings
-export SREDIAG_TELEMETRY_ENABLED=true
-export SREDIAG_TELEMETRY_ENDPOINT=collector:4317
-
-# Logging settings
-export SREDIAG_LOG_LEVEL=debug
-export SREDIAG_LOG_FORMAT=json
-```
-
-## Command Line Arguments
-
-Command line arguments take precedence over other settings:
-
-```bash
-# Basic configuration
-srediag --config /etc/srediag/config.yaml
-
-# Override specific settings
-srediag --log-level debug --port 9090
-
-# Multiple config files
-srediag --config base.yaml --config override.yaml
-```
-
-## OpenTelemetry Configuration
-
-### Collector Configuration
-
-```yaml
-# otel-collector.yaml
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: ${OTEL_GRPC_ENDPOINT:-0.0.0.0:4317}
-      http:
-        endpoint: ${OTEL_HTTP_ENDPOINT:-0.0.0.0:4318}
-
-processors:
-  batch:
-    timeout: ${BATCH_TIMEOUT:-1s}
-    send_batch_size: ${BATCH_SIZE:-1024}
-
   memory_limiter:
-    check_interval: ${MEMORY_CHECK_INTERVAL:-1s}
-    limit_mib: ${MEMORY_LIMIT_MIB:-1024}
+    check_interval: 2s
+    limit_mib: 1024
 
 exporters:
   otlp:
-    endpoint: ${OTLP_ENDPOINT:-localhost:4317}
+    endpoint: gw.observo.local:4317
     tls:
-      insecure: true
-
-  prometheus:
-    endpoint: ${PROMETHEUS_ENDPOINT:-0.0.0.0:9090}
+      insecure: false
 
 service:
   pipelines:
     traces:
-      receivers: [otlp]
+      receivers:  [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp]
-    metrics:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [otlp, prometheus]
+      exporters:  [otlp]
 ```
 
-### Resource Detection
+Extra SREDIAG-only processors (e.g., `vectorhashprocessor`) become
+available automatically once the corresponding plugin is **built and
+loaded**.
+
+Full field reference: `docs/configuration/service.md`.
+
+---
+
+## 4 · Build-time YAML (`srediag-build.yaml`)
+
+Controls what **components are compiled in** (`otelcol-builder` spec).
 
 ```yaml
-# resource-detection.yaml
+dist:
+  name: srediag
+  version: 0.1.0
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver  v0.124.0
 processors:
-  resourcedetection:
-    detectors: [env, system, docker, kubernetes]
-    timeout: 2s
-    override: true
-    attributes:
-      - key: service.name
-        value: ${SERVICE_NAME}
-      - key: deployment.environment
-        value: ${DEPLOYMENT_ENV}
+  - gomod: github.com/srediag/processors/vectorhashprocessor     v0.1.0
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter  v0.124.0
 ```
 
-## Examples
+Regenerate the binary after edits:
 
-### Basic Service Configuration
+```bash
+srediag build all --config build/srediag-build.yaml
+```
+
+---
+
+## 5 · Environment Variable Map
+
+| YAML Key | Env Var | Notes |
+| :------- | :------ | :---- |
+| `logging.level` | `SREDIAG_LOG_LEVEL` | overrides YAML |
+| `logging.format` | `SREDIAG_LOG_FORMAT` | `console` / `json` |
+| `plugins.dir` | `SREDIAG_PLUGINS_DIR` | path to look for `.so` files |
+
+---
+
+## 6 · Precedence Rules
+
+```text
+Flags   >   Env vars   >   YAML   >   Built-ins
+```
+
+*Example* — given
+
+```bash
+export SREDIAG_LOG_LEVEL=debug
+srediag diagnose system --log-level warn
+```
+
+the effective level is **warn** (flag beats env).
+
+---
+
+## 7 · Validation & Reload
+
+* Core YAML is validated on startup; fatal errors abort execution.  
+* Service mode watches both YAML files for `SIGHUP` — the collector
+  reloads pipelines live; the core layer restarts plugin discovery.
+
+---
+
+## 8 · Minimal Working Examples
+
+### 8.1 CLI-only
 
 ```yaml
-# basic-config.yaml
 service:
-  name: myapp
-  environment: production
-  port: 8080
-
-telemetry:
-  enabled: true
-  endpoint: collector:4317
-  sampling:
-    type: probabilistic
-    ratio: 0.1
-
+  name: srediag
 logging:
   level: info
-  format: json
-  file:
-    enabled: true
-    path: /var/log/srediag/service.log
+  format: console
 ```
 
-### Advanced Configuration
+```bash
+srediag diagnose system        # uses defaults, no collector
+```
+
+### 8.2 Full Service Pipeline
 
 ```yaml
-# advanced-config.yaml
 service:
-  name: myapp
-  environment: production
-  port: 8080
-  features:
-    - monitoring
-    - diagnostics
-    - profiling
+  name: srediag
+  environment: staging
 
-telemetry:
+collector:
   enabled: true
-  endpoint: collector:4317
-  sampling:
-    type: probabilistic
-    ratio: 0.1
-  metrics:
-    interval: 10s
-    prefix: myapp
-  traces:
-    enabled: true
-    propagation: b3
+  config_path: /etc/srediag/srediag-service.yaml
 
-logging:
-  level: info
-  format: json
-  output:
-    - stdout
-    - file
-  file:
-    enabled: true
-    path: /var/log/srediag/service.log
-    rotation:
-      max_size: 100MB
-      max_age: 7d
-      max_backups: 5
+plugins:
+  enabled:
+    - processor/vectorhashprocessor
 ```
 
-## Best Practices
+---
 
-1. **Configuration Organization**
-   - Use separate files for different components
-   - Keep sensitive data in secure storage
-   - Use environment-specific overrides
-   - Version control configurations
+## 9 · Best Practices
 
-2. **Security**
-   - Never commit secrets to version control
-   - Use environment variables for sensitive data
-   - Implement proper access controls
-   - Regularly rotate credentials
+* Keep core YAML lean; heavy pipeline logic lives in
+  `srediag-service.yaml`.  
+* Store secrets outside YAML (env vars, K8s Secrets, Vault).  
+* In Kubernetes mount both YAMLs as **ConfigMaps** and send `SIGHUP`
+  for zero-downtime reloads.  
+* Components **not compiled in** cannot be referenced at runtime —
+  keep `srediag-build.yaml` and collector YAML in sync.
 
-3. **Monitoring**
-   - Configure appropriate logging levels
-   - Set meaningful metric intervals
-   - Use proper sampling rates
-   - Monitor configuration changes
+---
 
-4. **Performance**
-   - Optimize batch sizes
-   - Configure appropriate intervals
-   - Use resource limits
-   - Monitor impact of configuration
+## 10 · Related Docs
 
-## See Also
-
-- [CLI Documentation](../cli/README.md)
-- [Cloud Integration](../cloud/README.md)
-- [Security Guide](../security/README.md)
-- [Troubleshooting](../reference/troubleshooting.md)
+* [CLI Guide](../cli/README.md)  
+* [Service-mode Deep-Dive](service.md)  
+* [Build System](../build.md)  
+* [Plugin Architecture](../plugins/README.md)

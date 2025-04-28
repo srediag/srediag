@@ -1,235 +1,247 @@
-# SREDIAG Security Configuration
+# SREDIAG — Security Configuration Guide
 
-## Overview
+> **Audience** – Platform / SRE engineers operating the SREDIAG agent in
+> dev, staging, and production.
+> **Out of scope** – Threat-model & crypto architecture (see
+> `docs/architecture/security.md`) and supply-chain controls
+> (`docs/security/supply-chain.md`).
 
-This document describes the security configurations available in SREDIAG, including authentication, authorization, encryption, and other protection measures.
+SREDIAG enforces security along **four concentric rings**:
 
-## Configuration Structure
+```ascii
 
-```yaml
-security:
-  # TLS Configuration
-  tls:
-    enabled: ${TLS_ENABLED:-true}
-    cert_file: ${TLS_CERT_FILE:-/etc/srediag/certs/server.crt}
-    key_file: ${TLS_KEY_FILE:-/etc/srediag/certs/server.key}
-    ca_file: ${TLS_CA_FILE:-/etc/srediag/certs/ca.crt}
-    min_version: ${TLS_MIN_VERSION:-TLS1.2}
-    verify_client: ${TLS_VERIFY_CLIENT:-true}
-    cipher_suites:
-      - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-      - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-  
-  # Authentication Configuration
-  auth:
-    enabled: ${AUTH_ENABLED:-true}
-    type: ${AUTH_TYPE:-jwt}
-    jwt:
-      secret: ${JWT_SECRET:-}
-      public_key: ${JWT_PUBLIC_KEY:-/etc/srediag/keys/jwt.pub}
-      private_key: ${JWT_PRIVATE_KEY:-/etc/srediag/keys/jwt.key}
-      expiration: ${JWT_EXPIRATION:-24h}
-    oauth2:
-      provider_url: ${OAUTH_PROVIDER_URL:-}
-      client_id: ${OAUTH_CLIENT_ID:-}
-      client_secret: ${OAUTH_CLIENT_SECRET:-}
-      scopes: ${OAUTH_SCOPES:-[openid, profile, email]}
-  
-  # RBAC Configuration
-  rbac:
-    enabled: ${RBAC_ENABLED:-true}
-    default_role: ${RBAC_DEFAULT_ROLE:-viewer}
-    roles:
-      admin:
-        - "*"
-      operator:
-        - "read:*"
-        - "write:config"
-        - "write:telemetry"
-      viewer:
-        - "read:config"
-        - "read:telemetry"
-  
-  # Network Configuration
-  network:
-    allowed_origins: ${ALLOWED_ORIGINS:-["*"]}
-    allowed_methods: ${ALLOWED_METHODS:-["GET", "POST", "PUT", "DELETE"]}
-    allowed_headers: ${ALLOWED_HEADERS:-["Authorization", "Content-Type"]}
-    exposed_headers: ${EXPOSED_HEADERS:-["Content-Length"]}
-    allow_credentials: ${ALLOW_CREDENTIALS:-true}
-    max_age: ${CORS_MAX_AGE:-86400}
-  
-  # Rate Limiting Configuration
-  rate_limit:
-    enabled: ${RATE_LIMIT_ENABLED:-true}
-    requests_per_second: ${RATE_LIMIT_RPS:-100}
-    burst: ${RATE_LIMIT_BURST:-200}
+┌──────────────────────────────────────────────┐
+│  4  Supply-chain   (SBOM, cosign, SLSA)      │
+│  3  Runtime guard  (seccomp, cgroup, RO FS)  │
+│  2  Control plane  (TLS, AuthN, RBAC, quotas)│
+│  1  Data plane     (mTLS, dedup, PII scrubs) │
+└──────────────────────────────────────────────┘
+
 ```
 
-## Components
+This guide shows **how to configure ring 2-3** via YAML and runtime
+flags.
 
-### TLS
+---
 
-1. **Certificates**
-   - Server certificate
-   - Private key
-   - Certificate Authority (CA)
-   - Client validation
+## 0 · File & Flag Locations
 
-2. **Versions and Ciphers**
-   - Minimum TLS 1.2 version
-   - Secure cipher suites
-   - Priority configuration
+| Scope | YAML key | Default path |
+| :---- | :------- | :----------- |
+| **Service daemon** | `security:` | `/etc/srediag/srediag.yaml` |
+| **CLI runtime** | `security.cli:` (*subset*) | `$HOME/.config/srediag/srediag.yaml` |
+| **Per-plugin tweaks** | `plugins.d/<name>.yaml` → `security:` | Same dir as plugin YAML |
+| **Flags** | `--tls-*`, `--auth-*` | override YAML at startup |
 
-### Authentication
+> **Tip** – *System-mode* flags start with `srediag service …`;
+> *user-mode* flags start with `srediag … --user`.
 
-1. **JWT**
-   - Token generation
-   - Token validation
-   - Public/private keys
-   - Expiration configuration
+---
 
-2. **OAuth2**
-   - Supported providers
-   - Authentication flows
-   - Required scopes
-   - Token validation
-
-### RBAC (Role-Based Access Control)
-
-1. **Roles**
-   - Administrator
-   - Operator
-   - Viewer
-   - Custom roles
-
-2. **Permissions**
-   - Configuration read
-   - Configuration write
-   - Telemetry access
-   - User management
-
-### Network Security
-
-1. **CORS**
-   - Allowed origins
-   - Allowed methods
-   - Allowed headers
-   - Credentials
-
-2. **Rate Limiting**
-   - IP-based limits
-   - User-based limits
-   - Burst configuration
-   - Blocking policies
-
-## Configuration Examples
-
-### Basic Configuration
+## 1 · Complete YAML Reference (system scope)
 
 ```yaml
 security:
   tls:
     enabled: true
     cert_file: /etc/srediag/certs/server.crt
-    key_file: /etc/srediag/certs/server.key
-  
-  auth:
-    enabled: true
-    type: jwt
+    key_file:  /etc/srediag/certs/server.key
+    ca_file:   /etc/srediag/certs/ca.crt
+    min_version: TLS1.3          # 1.2 allowed for legacy if explicit
+    verify_client: true          # mTLS
+
+  auth:               # Collector & CLI invoke same backend
+    type: oauth2      # oauth2 | jwt | none
     jwt:
-      secret: "your-secret-here"
-  
-  rbac:
+      secret:   "${JWT_SECRET}"
+      lifetime: 24h
+    oauth2:
+      issuer:  https://login.example.com
+      client_id: srediag
+      client_secret: "${OIDC_SECRET}"
+      scopes: [openid, profile, email]
+
+  rbac:               # Shared by service HTTP UI & plugin IPC
     enabled: true
     default_role: viewer
-  
-  rate_limit:
+    roles:
+      admin:    ["*"]
+      operator: ["read:*", "write:config", "write:telemetry"]
+      viewer:   ["read:*"]
+
+  quotas:             # per-tenant limits enforced by processors
+    spans_per_second: 50_000
+    logs_mib_per_min: 100
+
+  rate_limit:         # HTTP & gRPC endpoints
     enabled: true
-    requests_per_second: 100
+    rps: 200
+    burst: 400
+
+  runtime:            # Ring 3 – sandboxing
+    seccomp_profile: runtime/default
+    apparmor_profile: strict
+    read_only_rootfs: true
+    mem_guard_mib: 256          # hard RSS fence per plugin proc
+    cpu_guard_pct: 80           # soft cap via cgroup v2 weight
 ```
 
-### Production Configuration
+Anything left unspecified inherits **plugin-hard-coded** safe defaults.
+
+---
+
+## 2 · Quick-Start Profiles (copy-paste blocks)
+
+### 2.1 Development (HTTP, JWT, no sandbox)
+
+```yaml
+security:
+  tls.enabled: false
+  auth:
+    type: jwt
+    jwt.secret: dev-secret
+  rbac.enabled: false
+  runtime:
+    seccomp_profile: unconfined
+    read_only_rootfs: false
+```
+
+### 2.2 Production hardened (mTLS + OAuth2 + full sandbox)
 
 ```yaml
 security:
   tls:
     enabled: true
-    cert_file: /etc/srediag/certs/server.crt
-    key_file: /etc/srediag/certs/server.key
-    ca_file: /etc/srediag/certs/ca.crt
-    min_version: TLS1.3
     verify_client: true
-    cipher_suites:
-      - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-      - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-  
+    min_version: TLS1.3
   auth:
-    enabled: true
     type: oauth2
     oauth2:
-      provider_url: "https://your-oauth-provider.com"
-      client_id: "your-client-id"
-      client_secret: "your-client-secret"
-      scopes: ["openid", "profile", "email"]
-  
+      issuer: https://idp.corp.example
+      client_id: srediag-agent
+      client_secret: "${OIDC_CLIENT_SECRET}"
   rbac:
     enabled: true
     default_role: viewer
-    roles:
-      admin:
-        - "*"
-      operator:
-        - "read:*"
-        - "write:config"
-        - "write:telemetry"
-      viewer:
-        - "read:config"
-        - "read:telemetry"
-  
-  network:
-    allowed_origins: ["https://your-application.com"]
-    allowed_methods: ["GET", "POST", "PUT", "DELETE"]
-    allowed_headers: ["Authorization", "Content-Type"]
-    exposed_headers: ["Content-Length"]
-    allow_credentials: true
-    max_age: 86400
-  
-  rate_limit:
-    enabled: true
-    requests_per_second: 100
-    burst: 200
+  runtime:
+    read_only_rootfs: true
+    seccomp_profile: runtime/default
+    mem_guard_mib: 512
 ```
 
-## Best Practices
+---
 
-1. **Certificate Management**
-   - Use valid certificates
-   - Rotate regularly
-   - Protect private keys
-   - Keep CAs updated
+## 3 · Plugin-Specific Hardening
 
-2. **Authentication and Authorization**
-   - Use OAuth2 in production
-   - Implement RBAC
-   - Limit permissions
-   - Audit access
+Each plugin inherits system defaults **unless** overridden under
+`plugins.d/<name>.yaml`:
 
-3. **Network Security**
-   - Configure CORS
-   - Implement rate limiting
-   - Use TLS 1.3
-   - Monitor traffic
+```yaml
+# /etc/srediag/plugins.d/clickhouseexporter.yaml
+security:
+  rbac:
+    roles:
+      exporter: ["write:telemetry"]
+  runtime:
+    mem_guard_mib: 256
+```
 
-4. **Data Protection**
-   - Encrypt sensitive data
-   - Implement backup
-   - Define retention
-   - Monitor access
+*You cannot grant a plugin more privilege than the parent agent.*
+Attempting to lift `read_only_rootfs: false` when the agent runs with
+RO FS is ignored.
 
-## See Also
+---
 
-- [Configuration Overview](README.md)
-- [Collector Configuration](collector.md)
-- [Telemetry Configuration](telemetry.md)
-- [Troubleshooting](../reference/troubleshooting.md)
+## 4 · CLI Runtime vs Service Daemon
+
+| Setting | Service obeys | CLI obeys | Notes |
+| :------ | :------------ | :-------- | :---- |
+| `tls.*` | ✓ | ✗ | CLI uses localhost socket |
+| `auth.*` | ✓ | ✓ (for remote URLs) | |
+| `rbac.*` | ✓ | ✓ | CLI commands map to RBAC verbs |
+| `runtime.*` | ✓ | ✓ (per-plugin) | |
+
+Pass `--user` to force *user-mode* and read the *user* YAML overlay:
+
+```bash
+srediag diagnose system snapshot --user
+```
+
+---
+
+## 5 · Validation & Monitoring
+
+* **Startup guard** – Agent refuses to boot if
+  * TLS enabled but certificate missing
+  * RBAC enabled and `default_role` undefined
+* **Live verification**
+
+```bash
+srediag plugin verify otlpreceiver
+srediag service status --format yaml | yq .security
+```
+
+* **Metrics exposed**
+
+| Metric | Meaning |
+| :----- | :------ |
+| `srediag_auth_failures_total` | AuthN failures (label: `reason`) |
+| `srediag_rbac_denies_total`   | Access denials (label: `role`) |
+| `srediag_plugin_sandbox_violations_total` | seccomp hits |
+
+Alert threshold: **> 0** for sandbox violations.
+
+---
+
+## 6 · Incident-Response Playbook (condensed)
+
+1. **Contain** – `srediag service stop` (systemd) or
+   `srediag plugin disable …` for targeted issue.
+2. **Gather** – `srediag service profile` + relevant logs.
+3. **Quarantine plugin** across fleet:
+
+   ```bash
+   srediag plugin update --scope service --to quarantine vectorhashprocessor
+   ```
+
+4. **Patch** – Build fixed plugin, `install` + `enable` on canary.
+
+---
+
+## 7 · Best-Practice Checklist
+
+| ✔︎ | Recommendation |
+| :- | :------------- |
+| ✓ | Rotate TLS certs every 90 d (use cert-manager or Vault side-car) |
+| ✓ | Avoid wild-card (`*`) actions outside `admin` |
+| ✓ | Enable **read-only root FS** and `seccomp` everywhere |
+| ✓ | Pin plugin SHA-256 hashes in GitOps manifests |
+| ✓ | Audit `srediag_plugin_sandbox_violations_total` weekly |
+| ✓ | Keep `plugins.d/` under version control alongside pipelines |
+
+---
+
+## 8 · Troubleshooting Quick-Hits
+
+| Symptom | Fix |
+| :------ | :-- |
+| `x509: unknown issuer` on startup | Point `tls.ca_file` to correct CA bundle |
+| HTTP 403 despite valid token | Check `rbac.roles` mapping to `auth.claims.role` |
+| Plugin crashes at boot | Lower `mem_guard_mib` or inspect seccomp log in `dmesg` |
+| Collector reload fails (`plugin not enabled`) | Add plugin to `plugins.enabled` or correct alias name |
+
+Increase verbosity:
+
+```bash
+SREDIAG_LOG_LEVEL=debug srediag service reload
+```
+
+---
+
+## 9 · Reference & Further Reading
+
+* Threat model & crypto flow – `docs/architecture/security.md`
+* Supply-chain (cosign, SBOM, provenance) – `docs/security/supply-chain.md`
+* Plugin sandbox internals – `docs/architecture/plugin-manager.md`
+* Service & Collector YAML – `configuration/service.md`
+* Plugin lifecycle commands – `cli/plugin.md`

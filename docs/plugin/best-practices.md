@@ -6,7 +6,7 @@ This document outlines best practices for developing SREDIAG plugins.
 
 ### Project Structure
 
-```
+```ascii
 plugin-name/
 ├── cmd/
 │   └── main.go

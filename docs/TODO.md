@@ -1,349 +1,129 @@
 # SREDIAG TODO List
 
-## Completed Features ✅
+## SREDIAG — Master TODO & Execution Plan (sync 2025‑04‑27)
 
-### Core Features
+> **Scope** – Concrete engineering work. Strategy, risk and glossary live in [`docs/specification.md`](specification.md). Update with **minimal diffs**, append your name + date in commit messages.
 
-- [x] Basic CLI framework with cobra
-- [x] Configuration management with viper
-- [x] Logging system with zap
-- [x] Command structure and organization
-- [x] Environment variable handling
-- [x] Basic error handling and exit codes
+---
 
-### CLI Tools
+## 0 · Snapshot Summary
 
-- [x] Basic command structure
-  - [x] Diagnose commands (system, kubernetes)
-  - [x] Analyze commands (process, memory)
-  - [x] Monitor commands (system)
-  - [x] Security commands (scan, check)
-- [x] Global flags and options
-- [x] Command documentation and examples
-- [x] Logging integration
+* **Current tag**: `v0.0.1` (baseline collector + plugin loader)  — built from commit `HEAD@main ‹replace‑sha›`  
+* **Upcoming tag**: `v0.1.0` (Phase 1 Perf Core, due 2025‑06‑14)
 
-## Pending Features 🚀
+---
 
-### High Priority - Core Engine
+## 1 · Requirements Coverage (Spec §3)
 
-- [ ] OpenTelemetry Collector Integration
-  - [ ] Receivers implementation
-  - [ ] Processors implementation
-  - [ ] Exporters implementation
-  - [ ] Pipeline configuration
-  - [ ] Data model alignment
+| ID | Requirement | Phase | Status | Work‑Item |
+| :-- | :-- | :-: | :-: | :-- |
+| **F‑1** | OTLP ingestion (gRPC + HTTP) | 0 | ✅ | core bootstrap |
+| **F‑2** | Hot‑reload plugins | 1 | 🔴 | IPC / Plugin Manager |
+| **F‑3** | 30 s log dedup | 2 | 🟠 | `vectorhashprocessor` |
+| **F‑4** | `%CMDB_HASH%` attribute | 3 | 🟢 | fingerprint library |
+| **F‑5** | Tenant auth & rate limits | 4 | ⚪ | quotas middleware |
+| **F‑6** | `/healthz` & `/metrics` | 0 | ✅ | core exporter |
+| **F‑7** | Signed remote‑config | 3 | 🟢 | remote‑config engine |
+| **F‑8** | Log auto‑format detect | 2 | 🟠 | dedup heuristics |
+| **F‑9** | 10 GiB offline buffer | 2 | 🟠 | RocksDB spill cache |
+| **F‑10** | Dynamic tail‑sampling | 4 | ⚪ | tail‑sampler rules |
 
-- [ ] Plugin System Architecture
-  - [ ] Core plugin interfaces
-    - [ ] Diagnostic plugins
-    - [ ] Collector plugins
-    - [ ] Processor plugins
-    - [ ] Exporter plugins
-  - [ ] Plugin lifecycle management
-    - [ ] Loading/unloading
-    - [ ] Configuration
-    - [ ] Health monitoring
-  - [ ] Plugin discovery and registration
-  - [ ] Plugin dependency resolution
-  - [ ] Plugin resource management
+_Gaps_: **F‑8** & **F‑9** require prototype → schedule sprint **2025‑07‑01**.
 
-- [ ] Diagnostic Engine
-  - [ ] Core diagnostic interfaces
-  - [ ] Data collection framework
-  - [ ] Analysis pipeline
-  - [ ] Result aggregation
-  - [ ] Reporting system
+---
 
-### Implementation Priority
+## 2 · Phase Roadmap (aligns Spec §6)
 
-1. Plugin System Foundation
-   - [ ] Create plugin directory structure
-   - [ ] Define core interfaces
-   - [ ] Implement plugin manager
-   - [ ] Add plugin discovery
-   - [ ] Create example plugins
+| Phase | Deliverables | Tag | ETA | Lead | Status |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| 0 Baseline | Static collector · plugin loader · basic CI | `v0.0.1` | 2025‑04‑15 | Core | ✅ |
+| 1 Perf Core | shmipc IPC · `mem_guard` · hash‑index cache | `v0.1.0` | 2025‑06‑14 | Core | 🔴 |
+| 2 Dedup + Compression | vectorhashprocessor · adaptive LZ4/ZSTD | `v0.2.0` | 2025‑07‑19 | Perf | 🟠 |
+| 3 Governance | CMDB drift → OTLP · audit channel · RocksDB tier | `v0.3.0` | 2025‑08‑23 | Platform | 🟢 |
+| 4 Multi‑Tenancy | SPIFFE mTLS · quotas · ClickHouse exporter | `v0.4.0` | 2025‑09‑27 | Security | ⚪ |
+| 5 Auto‑Pilot | Helm chart · K8s Operator · side‑car inject | `v0.5.0‑beta1` | 2025‑10‑25 | DevOps | ⚪ |
+| GA | FedRAMP draft · FIPS build · docs freeze | `v1.0.0` | 2025‑11‑29 | PMO | ⚪ |
 
-2. OpenTelemetry Integration
-   - [ ] Setup collector base
-   - [ ] Implement core components
-   - [ ] Add telemetry pipeline
-   - [ ] Create custom processors
+Legend — ✅ done • 🔴 active • 🟠 queued • 🟢 design • ⚪ backlog
 
-3. Diagnostic Implementation
-   - [ ] System diagnostics
-   - [ ] Kubernetes diagnostics
-   - [ ] Cloud provider diagnostics
-   - [ ] Application diagnostics
+---
 
-4. Management Features
-   - [ ] Configuration management
-   - [ ] State management
-   - [ ] Policy enforcement
-   - [ ] Resource optimization
+## 3 · Detailed Work‑Streams
 
-### Plugin Development
+### 3.1 Core Collector & Runtime
 
-#### Core Plugins
+| ID | Task | Owner | ETA | Notes |
+| :-- | :-- | :-- | :-- | :-- |
+| C‑01 | Upgrade to OTel v0.124.0 / API v1.30.0 | Core | 2025‑05‑10 | update `go.mod`, `go mod tidy` |
+| C‑02 | Pipeline builder (Go → YAML) | Core | 2025‑05‑24 | template pkg |
+| C‑03 | Component registry with lazy load | Core | 2025‑06‑07 | `internal/core/registry.go` |
+| C‑04 | Graceful shutdown (flush + RocksDB close) | Core | 2025‑06‑14 | tie into signals |
 
-- [ ] System Diagnostics Plugin
-  - [ ] CPU analysis
-  - [ ] Memory analysis
-  - [ ] Disk I/O
-  - [ ] Network statistics
+### 3.2 Plugin Framework
 
-- [ ] Kubernetes Diagnostics Plugin
-  - [ ] Cluster health
-  - [ ] Node analysis
-  - [ ] Pod diagnostics
-  - [ ] Service mesh
+| P‑ID | Task | Phase | ETA |
+| :-- | :-- | :-: | :-- |
+| P‑01 | IPC fuzz/integration tests | 1 | 2025‑05‑28 |
+| P‑02 | Manifest v1 JSON schema | 1 | 2025‑05‑31 |
+| P‑03 | seccomp profile generator | 1 | 2025‑06‑10 |
+| P‑04 | Heartbeat RPC + Prom metric | 1 | 2025‑06‑12 |
 
-- [ ] Cloud Provider Plugins
-  - [ ] AWS integration
-  - [ ] Azure integration
-  - [ ] GCP integration
+### 3.3 Dedup & Compression (Phase 2)
 
-#### Collector Plugins
+* RocksDB wrapper (WAL sync, CF per tenant)
+* Content‑defined chunker (>4 KiB messages)
+* Adaptive encoder benchmark (zstd‑1 vs lz4‑fast)
+* Integration test: replay 10 M logs → ≥70 % egress reduction
 
-- [ ] Custom Receivers
-  - [ ] System metrics
-  - [ ] Log aggregation
-  - [ ] Event collection
+### 3.4 Diagnostics Plugins
 
-- [ ] Custom Processors
-  - [ ] Diagnostic analysis
-  - [ ] Anomaly detection
-  - [ ] Pattern matching
+| D‑ID | Plugin / Feature | Phase | Status |
+| :-- | :-- | :-: | :-- |
+| D‑01 | **System diagnostics** (CPU, mem, IO, net) | 3 | 🟢 design |
+| D‑02 | **Kubernetes diagnostics** (cluster, node, pod) | 3 | 🟢 design |
+| D‑03 | **Cloud provider stubs** (AWS, Azure, GCP) | 5 | ⚪ |
+| D‑04 | **IaC analyzers** (Terraform, K8s manifests, Helm) | 5 | ⚪ |
 
-- [ ] Custom Exporters
-  - [ ] Diagnostic reports
-  - [ ] Alert generation
-  - [ ] Dashboard integration
+### 3.5 Observability & Dashboards
 
-### Documentation Needs
+* Self‑metrics exporter, zPages endpoint, Grafana JSON dashboards (Phase 2‑3)
 
-- [ ] Architecture Documentation
-  - [ ] System overview
-  - [ ] Component interaction
-  - [ ] Data flow
-  - [ ] Plugin system
+### 3.6 Docs & DX
 
-- [ ] Developer Guides
-  - [ ] Plugin development
-  - [ ] Contribution guidelines
-  - [ ] Best practices
+* MkDocs build in CI, plugin SDK tutorial, contributing & style guides.
 
-- [ ] User Documentation
-  - [ ] Installation guide
-  - [ ] Configuration reference
-  - [ ] CLI usage
-  - [ ] Plugin usage
+### 3.7 Testing & Quality
 
-### Testing Requirements
+* Unit ≥ 85 % lines, integration in Kind, perf benchstat gate, chaos scripts.
 
-- [ ] Unit Tests
-  - [ ] Core components
-  - [ ] Plugin system
-  - [ ] CLI commands
+### 3.8 Security & Compliance
 
-- [ ] Integration Tests
-  - [ ] Plugin integration
-  - [ ] OpenTelemetry integration
-  - [ ] System diagnostics
+* SBOM, SLSA L2, cosign signatures (Phase 2) • FIPS build (Phase 4) • FedRAMP draft (Phase 5).
 
-- [ ] Performance Tests
-  - [ ] Resource usage
-  - [ ] Scalability
-  - [ ] Reliability
+---
 
-### Security Implementation
+## 4 · Deployment & Ops Rollout (Spec §9)
 
-- [ ] Authentication
-  - [ ] API key management
-  - [ ] Token validation
-  - [ ] Role-based access
+| Milestone | Env | Owner | Status | Artefact |
+| :-- | :-- | :-- | :-- | :-- |
+| M0 (05‑2025) PoC | Kind | DevOps | ✅ | `reports/m0‑poc.md` |
+| M1 (06‑2025) Plugin GA | EKS / OKE | SRE | 🔴 | `helm/values‑msp.yaml` |
+| M2 (07‑2025) Dedup lab | Perf lab | Perf | 🟠 | `bench/m2‑plan.md` |
+| M3 (08‑2025) CMDB pilot | MSP pilot | Cust Success | 🟢 | `pilots/cmdb‑run.md` |
+| M4 (09‑2025) Quotas & Billing | SaaS stage | FinOps | ⚪ | `docs/billing‑hooks.md` |
+| M5 (10‑2025) FIPS build | Gov cloud | Security | ⚪ | `compliance/fedramp‑draft.md` |
+| GA (11‑2025) SaaS launch | Prod | Product | ⚪ | `release‑checklist.md` |
 
-- [ ] Authorization
-  - [ ] Permission system
-  - [ ] Resource access control
-  - [ ] Audit logging
+Artefacts must be updated (link + status) at milestone closure.
 
-- [ ] Data Security
-  - [ ] Encryption at rest
-  - [ ] Secure communication
-  - [ ] Data privacy
+---
 
-## Official Plugins
+## 5 · Compliance & Supply‑Chain Checklist
 
-### System Diagnostics
-
-- [ ] Core system analyzer
-  - [ ] CPU profiling and analysis
-  - [ ] Memory leak detection
-  - [ ] I/O bottleneck identification
-  - [ ] System call tracing
-- [ ] Network diagnostics
-  - [ ] Connectivity testing
-  - [ ] Latency analysis
-  - [ ] Bandwidth monitoring
-  - [ ] Protocol analysis
-- [ ] Storage diagnostics
-  - [ ] Disk health monitoring
-  - [ ] I/O pattern analysis
-  - [ ] Storage performance testing
-  - [ ] Capacity trending
-
-### Kubernetes Diagnostics
-
-- [ ] Cluster health analyzer
-  - [ ] Control plane diagnostics
-  - [ ] Node health checks
-  - [ ] Network policy validation
-  - [ ] Resource quota analysis
-- [ ] Application diagnostics
-  - [ ] Pod lifecycle analysis
-  - [ ] Container health checks
-  - [ ] Service mesh diagnostics
-  - [ ] Ingress/Egress analysis
-- [ ] Performance diagnostics
-  - [ ] Resource utilization analysis
-  - [ ] Scaling recommendations
-  - [ ] Cost optimization
-  - [ ] Performance bottleneck detection
-
-### Cloud Provider Diagnostics
-
-- [ ] AWS diagnostics
-  - [ ] EKS cluster analysis
-  - [ ] VPC configuration validation
-  - [ ] IAM policy analysis
-  - [ ] Cost optimization recommendations
-- [ ] Azure diagnostics
-  - [ ] AKS cluster analysis
-  - [ ] VNET configuration validation
-  - [ ] RBAC analysis
-  - [ ] Resource optimization
-- [ ] GCP diagnostics
-  - [ ] GKE cluster analysis
-  - [ ] VPC configuration validation
-  - [ ] IAM policy analysis
-  - [ ] Resource utilization optimization
-
-### Application Stack Diagnostics
-
-- [ ] Database diagnostics
-  - [ ] Query performance analysis
-  - [ ] Connection pool monitoring
-  - [ ] Replication health checks
-  - [ ] Backup validation
-- [ ] Web server diagnostics
-  - [ ] Apache/Nginx analysis
-  - [ ] SSL/TLS validation
-  - [ ] Access pattern analysis
-  - [ ] Performance optimization
-- [ ] Cache system diagnostics
-  - [ ] Redis/Memcached analysis
-  - [ ] Hit rate optimization
-  - [ ] Memory usage analysis
-  - [ ] Eviction policy validation
-
-## Infrastructure as Code Analysis
-
-- [ ] Terraform configuration analyzer
-  - [ ] Best practices validation
-  - [ ] Security compliance checks
-  - [ ] Cost estimation
-  - [ ] State drift detection
-- [ ] Kubernetes manifests analyzer
-  - [ ] Resource configuration validation
-  - [ ] Security best practices
-  - [ ] High availability validation
-  - [ ] Update strategy analysis
-- [ ] Helm charts analyzer
-  - [ ] Template validation
-  - [ ] Dependency analysis
-  - [ ] Version compatibility checks
-  - [ ] Security scanning
-
-## Integration Features
-
-- [ ] Incident management systems
-  - [ ] PagerDuty integration
-  - [ ] ServiceNow integration
-  - [ ] Jira integration
-- [ ] Monitoring systems
-  - [ ] Prometheus integration
-  - [ ] Grafana integration
-  - [ ] Datadog integration
-- [ ] CI/CD systems
-  - [ ] Jenkins integration
-  - [ ] GitLab CI integration
-  - [ ] GitHub Actions integration
-
-## Documentation
-
-### Architecture Documentation
-
-- [ ] Core architecture documentation
-  - [ ] System overview
-  - [ ] Component interactions
-  - [ ] Data flow diagrams
-  - [ ] Security model
-- [ ] OpenTelemetry integration guide
-  - [ ] Integration patterns
-  - [ ] Configuration examples
-  - [ ] Best practices
-- [ ] Plugin system documentation
-  - [ ] Plugin architecture
-  - [ ] Development guide
-- [ ] API reference
-  - [ ] Best practices
-
-### User Documentation
-
-- [ ] Getting started guide
-  - [ ] Installation instructions
-  - [ ] Basic configuration
-  - [ ] Quick start tutorials
-- [ ] Configuration guide
-  - [ ] Core settings
-  - [ ] Plugin configuration
-  - [ ] Security settings
-  - [ ] Advanced options
-- [ ] CLI reference
-  - [ ] Command documentation
-  - [ ] Usage examples
-  - [ ] Best practices
-
-### Developer Documentation
-
-- [ ] API reference
-  - [ ] Core APIs
-  - [ ] Plugin APIs
-  - [ ] Integration APIs
-- [ ] Development guides
-  - [ ] Setup guide
-  - [ ] Code style guide
-  - [ ] Testing guide
-- [ ] Contributing guide
-  - [ ] Contribution process
-  - [ ] Code review process
-  - [ ] Release process
-
-## Testing & Quality
-
-- [ ] Unit test coverage > 90%
-- [ ] Integration test suite
-- [ ] Performance benchmarks
-- [ ] Security testing
-- [ ] Chaos testing
-- [ ] Load testing
-- [ ] Compatibility testing
-
-## Community & Ecosystem
-
-- [ ] Plugin marketplace
-- [ ] Community plugins repository
-- [ ] Plugin development toolkit
-- [ ] Documentation site
-- [ ] Community forum
-- [ ] Regular meetups/webinars
+| Control | Tool / Evidence | Phase |
+| :-- | :-- | :-: |
+| SBOM (CycloneDX) | `make sbom` via Syft | 2 |
+| SLSA L2 | `slsa-github-generator` | 2 |
+| Cosign signatures | Release pipeline | 2 |
+| FIPS‑140‑3 build | `CGO_ENABLED=1`, BoringCrypto toolchain | 4 |
+| FedRAMP SSP | docs/compliance/fedramp | 5 |
