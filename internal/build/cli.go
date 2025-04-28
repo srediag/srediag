@@ -12,10 +12,14 @@
 //   - Log all errors and important events for traceability.
 //   - Use context-aware logging and error handling for better diagnostics.
 //
-// TODO:
-//   - Add context.Context support for cancellation and timeouts.
-//   - Refactor to reduce repeated logger fallback logic.
-//   - Consider extracting common flag extraction logic to helpers.
+// TODO: Add support for context.Context to all CLI functions to enable cancellation and timeouts.
+// TODO: Refactor to reduce repeated logger fallback logic in CLI functions.
+// TODO: Consider extracting common flag extraction logic to helper functions.
+// TODO: Implement 'srediag build all' and 'srediag build plugin' commands using the YAML specification.
+// TODO: Output static binary and plugin bundles as described in the build specification.
+// TODO: Integrate SBOM generation, cosign signing, and SLSA attestation into the build pipeline.
+// TODO: Implement standardized error codes for the build CLI.
+// TODO: Provide actionable error messages for common build pitfalls in the CLI.
 //
 // Redundancy/Refactor:
 //   - Logger fallback and outputDir extraction are repeated in every function; could be DRYed up.
@@ -26,6 +30,12 @@
 // TODO: Integrate SBOM, cosign signing, and SLSA attestation in build pipeline (see architecture/build.md §3)
 // TODO: Implement standardized error codes for build CLI (see architecture/build.md §7)
 // TODO: Provide actionable error messages for common build pitfalls (see architecture/build.md §7)
+// TODO: Implement granular validation for all nested config sections.
+// TODO: Add a Redact/Sanitize method to Config to prevent logging secrets.
+// TODO: Integrate StrictYAMLUnmarshal into LoadConfigWithOverlay for schema safety.
+// TODO: Add support for multi-error reporting in ValidateConfig.
+// TODO: Add tests for environment variable overlays and malformed YAML.
+// TODO: Allow explicit override of default directories for containerized or custom environments.
 package build
 
 import (
@@ -36,6 +46,11 @@ import (
 
 	"github.com/srediag/srediag/internal/core"
 )
+
+var updateBuilderFunc = UpdateBuilder
+var newBuildManagerFunc = func(logger *core.Logger, outputDir string) BuildManagerInterface {
+	return NewBuildManager(logger, outputDir)
+}
 
 // CLI_BuildAll is the entrypoint for 'srediag build all'.
 //
@@ -63,7 +78,7 @@ func CLI_BuildAll(ctx *core.AppContext, cmd *cobra.Command, args []string) error
 	if outputDir == "" {
 		outputDir = "/tmp/srediag-build"
 	}
-	bm := NewBuildManager(logger, outputDir)
+	bm := newBuildManagerFunc(logger, outputDir)
 	if err := bm.BuildAll(); err != nil {
 		logger.Error("BuildAll failed", core.ZapError(err))
 		return fmt.Errorf("build all failed: %w", err)
@@ -106,7 +121,7 @@ func CLI_BuildPlugin(ctx *core.AppContext, cmd *cobra.Command, args []string) er
 	if err != nil || pluginName == "" {
 		return fmt.Errorf("--name flag is required")
 	}
-	bm := NewBuildManager(logger, outputDir)
+	bm := newBuildManagerFunc(logger, outputDir)
 	if err := bm.BuildPlugin(pluginType, pluginName); err != nil {
 		logger.Error("BuildPlugin failed", core.ZapError(err))
 		return fmt.Errorf("build plugin failed: %w", err)
@@ -143,7 +158,7 @@ func CLI_Generate(ctx *core.AppContext, cmd *cobra.Command, args []string) error
 	}
 	pluginType, _ := cmd.Flags().GetString("type")
 	pluginName, _ := cmd.Flags().GetString("name")
-	bm := NewBuildManager(logger, outputDir)
+	bm := newBuildManagerFunc(logger, outputDir)
 	if err := bm.Generate(pluginType, pluginName); err != nil {
 		logger.Error("Generate failed", core.ZapError(err))
 		return fmt.Errorf("generate failed: %w", err)
@@ -178,7 +193,7 @@ func CLI_InstallPlugins(ctx *core.AppContext, cmd *cobra.Command, args []string)
 	if outputDir == "" {
 		outputDir = "/tmp/srediag-build"
 	}
-	bm := NewBuildManager(logger, outputDir)
+	bm := newBuildManagerFunc(logger, outputDir)
 	if err := bm.InstallPlugins(); err != nil {
 		logger.Error("InstallPlugins failed", core.ZapError(err))
 		return fmt.Errorf("install plugins failed: %w", err)
@@ -221,7 +236,7 @@ func CLI_UpdateBuilder(ctx *core.AppContext, cmd *cobra.Command, args []string) 
 	if err != nil || pluginGenDir == "" {
 		return fmt.Errorf("--plugin-gen flag is required")
 	}
-	if err := UpdateBuilder(yamlPath, gomodPath, pluginGenDir); err != nil {
+	if err := updateBuilderFunc(yamlPath, gomodPath, pluginGenDir); err != nil {
 		logger.Error("UpdateBuilder failed", core.ZapError(err))
 		return fmt.Errorf("update builder failed: %w", err)
 	}

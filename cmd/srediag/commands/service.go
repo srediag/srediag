@@ -8,7 +8,21 @@ import (
 	"github.com/srediag/srediag/internal/service"
 )
 
-// NewServiceCmd creates the root 'service' command with all subcommands
+// NewServiceCmd creates the root 'service' command with all subcommands.
+// The subcommands include:
+// - start: Start the SREDIAG service
+// - stop: Stop the SREDIAG service
+// - restart: Restart the SREDIAG service
+// - reload: Hot-reload YAML configuration
+// - detach: Fork to background (daemonize)
+// - status: Show service health and resource usage
+// - health: Exit 0 if /healthz is ready
+// - profile: Gather CPU+heap profile bundle
+// - tail-logs: Stream live service logs
+// - validate: Dry-run parse YAML + plugin refs
+// - install-unit: Create & enable systemd unit
+// - uninstall-unit: Remove systemd unit
+// - gc: Purge stale PID/socket/logs
 // Only CLI wiring is present here; all business logic is delegated to internal/service CLI_* functions.
 func NewServiceCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{

@@ -13,15 +13,15 @@
 //   - Use the returned map from GetFactories for read-only operations only.
 //
 // TODO:
-//   - Add support for deregistration and hot-reload of factories.
-//   - Consider supporting versioned factories or metadata.
+//   - Add support for deregistration and hot-reload of component factories in the registry.
+//   - Consider supporting versioned factories or attaching metadata to factories.
 //   - Add lifecycle hooks for factory initialization and shutdown.
 //
 // Redundancy/Refactor:
 //   - No redundancy; this is the canonical registry for SREDIAG component factories.
 //
 // TODO(C-03 Phase 1): Implement component registry with lazy load (see TODO.md C-03, ETA 2025-06-07)
-// TODO(C-04 Phase 1): Implement graceful shutdown (flush + RocksDB close) and tie into signals (see TODO.md C-04, ETA 2025-06-14)
+// TODO(C-04 Phase 1): Implement graceful shutdown logic (flush + RocksDB close) and tie into system signals (see TODO.md C-04, ETA 2025-06-14)
 package core
 
 import (
@@ -67,8 +67,9 @@ func NewRegistry() IRegistry {
 //   - Register all factories at startup before using GetFactory or GetFactories.
 //
 // TODO:
-//   - Add support for deregistration and hot-reload of factories.
-//   - Consider supporting versioned factories or metadata.
+//   - Add support for deregistration and hot-reload of component factories in the registry.
+//   - Consider supporting versioned factories or attaching metadata to factories.
+//   - Add lifecycle hooks for factory initialization and shutdown.
 func (r *registry) RegisterFactory(factory IFactory) error {
 	if factory == nil {
 		return fmt.Errorf("factory cannot be nil")

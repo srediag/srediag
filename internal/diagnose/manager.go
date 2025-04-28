@@ -19,13 +19,12 @@ import (
 //   - Always check for errors from diagnostic methods.
 //   - Use logger for all error and status reporting.
 //
-// TODO:
-//   - Add context.Context to all methods for cancellation and timeouts.
-// TODO: Implement plugin manager to inject CLI subcommands (see architecture/diagnose.md §2)
-// TODO: Implement plugin execution in main process, with optional cmdhelper for heavy collectors (see architecture/diagnose.md §2)
+// TODO: Add support for context.Context to all methods for cancellation and timeouts.
+// TODO: Implement plugin manager logic to inject CLI subcommands for diagnostics (see architecture/diagnose.md §2)
+// TODO: Implement plugin execution in the main process, with optional cmdhelper for heavy collectors (see architecture/diagnose.md §2)
 // TODO: Implement control-plane feedback loop for remote diagnostics (see architecture/diagnose.md §6)
-// TODO: Enforce error & exit-code semantics for diagnostics (see architecture/diagnose.md §7)
-// TODO: Implement diagnostics metrics contract (see architecture/diagnose.md §8)
+// TODO: Enforce error and exit-code semantics for diagnostics (see architecture/diagnose.md §7)
+// TODO: Implement diagnostics metrics contract for all diagnostic operations (see architecture/diagnose.md §8)
 
 // DiagnoseManager orchestrates all diagnostic operations (system, performance, security).
 //

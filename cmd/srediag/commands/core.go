@@ -20,9 +20,59 @@ type OutputFormat struct {
 	OutputFile string // file to write output to
 }
 
+// RootCommandDeps allows injection of dependencies for testability.
+type RootCommandDeps struct {
+	LoadConfigWithOverlay func(spec interface{}, cliFlags map[string]string, opts ...core.ConfigOption) error
+	ValidateConfig        func(cfg *core.Config) error
+	NewLogger             func(cfg *core.Logger) (*core.Logger, error)
+	PrintEffectiveConfig  func(cfg *core.Config) error
+
+	NewBuildCmd    func(ctx *core.AppContext) (*cobra.Command, error)
+	NewDiagnoseCmd func(ctx *core.AppContext) *cobra.Command
+	NewPluginCmd   func(ctx *core.AppContext) *cobra.Command
+	NewServiceCmd  func(ctx *core.AppContext) *cobra.Command
+}
+
 // NewRootCommand creates and returns the root command for SREDIAG CLI
-func NewRootCommand(ctx *core.AppContext) *cobra.Command {
+// Accepts optional dependencies for testability; if nil, uses production defaults.
+func NewRootCommand(ctx *core.AppContext, deps *RootCommandDeps) *cobra.Command {
 	var printConfig bool
+
+	// Set up dependency defaults
+	var loadConfigWithOverlay = core.LoadConfigWithOverlay
+	var validateConfig = core.ValidateConfig
+	var newLogger = core.NewLogger
+	var printEffectiveConfig = core.PrintEffectiveConfig
+	var newBuildCmd = NewBuildCmd
+	var newDiagnoseCmdFn = newDiagnoseCmd
+	var newPluginCmdFn = newPluginCmd
+	var newServiceCmdFn = NewServiceCmd
+	if deps != nil {
+		if deps.LoadConfigWithOverlay != nil {
+			loadConfigWithOverlay = deps.LoadConfigWithOverlay
+		}
+		if deps.ValidateConfig != nil {
+			validateConfig = deps.ValidateConfig
+		}
+		if deps.NewLogger != nil {
+			newLogger = deps.NewLogger
+		}
+		if deps.PrintEffectiveConfig != nil {
+			printEffectiveConfig = deps.PrintEffectiveConfig
+		}
+		if deps.NewBuildCmd != nil {
+			newBuildCmd = deps.NewBuildCmd
+		}
+		if deps.NewDiagnoseCmd != nil {
+			newDiagnoseCmdFn = deps.NewDiagnoseCmd
+		}
+		if deps.NewPluginCmd != nil {
+			newPluginCmdFn = deps.NewPluginCmd
+		}
+		if deps.NewServiceCmd != nil {
+			newServiceCmdFn = deps.NewServiceCmd
+		}
+	}
 
 	cmd := &cobra.Command{
 		Use:   "srediag",
@@ -33,31 +83,24 @@ comprehensive system monitoring and automated analysis.
 It provides a flexible plugin architecture for extending monitoring capabilities
 and integrates with various observability backends.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// 1. Bind Viper to Cobra flags
 			if err := viper.BindPFlags(cmd.Flags()); err != nil {
 				return fmt.Errorf("failed to bind flags: %w", err)
 			}
 			if err := viper.BindPFlags(cmd.PersistentFlags()); err != nil {
 				return fmt.Errorf("failed to bind persistent flags: %w", err)
 			}
-
-			// 2. Bind unique env vars for root config
 			if err := viper.BindEnv("srediag.config", "SREDIAG_CONFIG"); err != nil {
 				return fmt.Errorf("failed to bind env SREDIAG_CONFIG: %w", err)
 			}
-
-			// 3. Load config with overlays (flags > env > YAML > built-ins)
 			var config core.Config
-			if err := core.LoadConfigWithOverlay(&config, viperAllSettings()); err != nil {
+			if err := loadConfigWithOverlay(&config, viperAllSettings()); err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
-			if err := core.ValidateConfig(&config); err != nil {
+			if err := validateConfig(&config); err != nil {
 				return fmt.Errorf("invalid config: %w", err)
 			}
 			ctx.Config = &config
-
-			// 4. Bootstrap logger
-			logger, err := core.NewLogger(&core.Logger{
+			logger, err := newLogger(&core.Logger{
 				Level:            viper.GetString("log-level"),
 				Format:           viper.GetString("log-format"),
 				OutputPaths:      []string{"stdout"},
@@ -69,10 +112,8 @@ and integrates with various observability backends.`,
 			ctx.Logger = logger
 			ctx.BuildInfo = core.DefaultBuildInfo
 			ctx.ComponentManager = core.NewComponentManager(logger)
-
-			// 5. Print config and exit if requested
 			if printConfig {
-				if err := core.PrintEffectiveConfig(&config); err != nil {
+				if err := printEffectiveConfig(&config); err != nil {
 					return fmt.Errorf("failed to print config: %w", err)
 				}
 				os.Exit(0)
@@ -85,7 +126,6 @@ and integrates with various observability backends.`,
 		SilenceUsage: true,
 	}
 
-	// Add persistent flags (all global/common options)
 	cmd.PersistentFlags().String("config", "", "path to SREDIAG configuration file (env: SREDIAG_CONFIG)")
 	cmd.PersistentFlags().String("output", "table", "output format (json, yaml, table)")
 	cmd.PersistentFlags().Bool("quiet", false, "only output essential information")
@@ -96,15 +136,19 @@ and integrates with various observability backends.`,
 	cmd.PersistentFlags().BoolVar(&printConfig, "print-config", false, "print the effective merged config and exit")
 
 	if err := viper.BindPFlag("srediag.config", cmd.PersistentFlags().Lookup("config")); err != nil {
-		return nil // or handle/log the error as appropriate for your context
+		return nil
 	}
 
-	// Add subcommands
+	buildCmd, err := newBuildCmd(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize build command: %v\n", err)
+		os.Exit(1)
+	}
 	cmd.AddCommand(
-		NewBuildCmd(ctx),
-		newDiagnoseCmd(ctx),
-		newPluginCmd(ctx),
-		NewServiceCmd(ctx),
+		buildCmd,
+		newDiagnoseCmdFn(ctx),
+		newPluginCmdFn(ctx),
+		newServiceCmdFn(ctx),
 	)
 
 	return cmd
@@ -123,6 +167,6 @@ func viperAllSettings() map[string]string {
 
 // Execute creates the root command with the given context and executes it
 func Execute(ctx *core.AppContext) error {
-	rootCmd := NewRootCommand(ctx)
+	rootCmd := NewRootCommand(ctx, nil)
 	return rootCmd.Execute()
 }

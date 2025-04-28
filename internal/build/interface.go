@@ -11,9 +11,12 @@
 //   - Always use interfaces for dependency injection and testing.
 //   - Document all interface methods with expected side effects and error handling.
 //
-// TODO:
-//   - Add context.Context to all interface methods for cancellation and timeouts.
-//   - Consider splitting large interfaces into smaller, focused ones.
+// TODO: Add support for context.Context to all interface methods to enable cancellation and timeouts.
+// TODO: Consider splitting large interfaces into smaller, more focused ones for better maintainability.
+// TODO(P-02 Phase 1): Implement Manifest v1 JSON schema for plugins (see TODO.md P-02, ETA 2025-05-31)
+// TODO: Enforce manifest generation for plugins, including SHA-256 and cosign signature reference.
+// TODO: Validate ABI compatibility for plugins using Go symbol tables.
+// TODO: Fail the build if manifest generation or ABI compatibility checks fail.
 //
 // Redundancy/Refactor:
 //   - If only one implementation exists, consider if the interface is necessary.

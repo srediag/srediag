@@ -12,16 +12,15 @@
 //   - Use canonical types (BuilderConfig, PluginConfig) for all new code.
 //   - Avoid direct use of LegacyConfig except for migration/compatibility.
 //
-// TODO:
-//   - Remove LegacyConfig after full migration to canonical config.
-//   - Add context.Context support for cancellation and timeouts.
-//   - Add stricter schema validation and error reporting.
-//
-// Redundancy/Refactor:
-//   - LegacyConfig and ModuleConfig are transitional; prefer BuilderConfig and PluginConfig.
-//
+// TODO: Remove LegacyConfig after the migration to canonical config is complete.
+// TODO: Add support for context.Context to all methods for cancellation and timeouts.
+// TODO: Add stricter schema validation and improve error reporting for build configuration.
 // TODO(C-01 Phase 0): Upgrade to OTel v0.124.0 / API v1.30.0 (see TODO.md C-01, ETA 2025-05-10)
-// TODO(C-02 Phase 0): Implement pipeline builder (Go → YAML) (see TODO.md C-02, ETA 2025-05-24)
+// TODO(C-02 Phase 0): Implement pipeline builder that converts Go configuration to YAML (see TODO.md C-02, ETA 2025-05-24)
+// TODO: Enforce that all components in build YAML use the exact Go module path and pinned version.
+// TODO: Fail service startup if any unrecognized components are found in the pipeline YAML.
+// TODO: Implement a utility to synchronize versions between go.mod and build YAML.
+// TODO: Validate module versions and provide a diff/apply feature with --write flag.
 // TODO: Enforce exact Go module path and pinned version for all components in build YAML (see architecture/build.md §1.1)
 // TODO: Fail service startup if unrecognized components appear in pipeline YAML (see architecture/build.md §1.1)
 // TODO: Implement version synchronization utility between go.mod and build YAML (see architecture/build.md §4)

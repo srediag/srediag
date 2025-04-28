@@ -8,10 +8,12 @@ import (
 	"github.com/srediag/srediag/internal/core"
 )
 
-// TODO(D-01 Phase 3): Implement system diagnostics plugin (CPU, mem, IO, net) (see TODO.md D-01, Phase 3)
-// TODO(D-02 Phase 3): Implement Kubernetes diagnostics plugin (cluster, node, pod) (see TODO.md D-02, Phase 3)
-// TODO(D-03 Phase 5): Implement cloud provider stubs (AWS, Azure, GCP) (see TODO.md D-03, Phase 5)
-// TODO(D-04 Phase 5): Implement IaC analyzers (Terraform, K8s manifests, Helm) (see TODO.md D-04, Phase 5)
+// TODO(D-01 Phase 3): Implement system diagnostics plugin for CPU, memory, IO, and network metrics (see TODO.md D-01, Phase 3)
+// TODO(D-02 Phase 3): Implement Kubernetes diagnostics plugin for cluster, node, and pod health (see TODO.md D-02, Phase 3)
+// TODO(D-03 Phase 5): Implement cloud provider diagnostic stubs for AWS, Azure, and GCP (see TODO.md D-03, Phase 5)
+// TODO(D-04 Phase 5): Implement Infrastructure-as-Code analyzers for Terraform, K8s manifests, and Helm charts (see TODO.md D-04, Phase 5)
+// TODO: Add support for context.Context to all CLI functions for cancellation and timeouts.
+// TODO: Refactor to reduce repeated logger fallback logic in CLI functions.
 
 // Package diagnose provides diagnostic operations for SREDIAG, including system, performance, and security diagnostics.
 //

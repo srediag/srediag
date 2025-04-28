@@ -1,4 +1,4 @@
-// TODO: Implement manifest generation for plugins (SHA-256, cosign signature reference) (see architecture/build.md §3)
-// TODO: Validate ABI compatibility using Go symbol tables (see architecture/build.md §3)
-// TODO: Fail build if manifest or ABI check fails (see architecture/build.md §3)
+// TODO: Implement manifest generation for plugins, including SHA-256 hash and cosign signature reference.
+// TODO: Validate ABI compatibility for plugins using Go symbol tables.
+// TODO: Fail the build if manifest generation or ABI compatibility checks fail.
 package build

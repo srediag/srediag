@@ -5,6 +5,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -324,4 +325,18 @@ func ZapInt(key string, val int) zap.Field {
 // Usage: Use to add arbitrary structured data to logs.
 func ZapReflect(key string, val interface{}) zap.Field {
 	return zap.Reflect(key, val)
+}
+
+// NewTestLogger returns a *Logger that writes to the provided buffer. For test use only.
+func NewTestLogger(buf *bytes.Buffer) *Logger {
+	zapLogger := zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.AddSync(buf),
+		zapcore.InfoLevel,
+	))
+	return &Logger{
+		logger: zapLogger,
+		Level:  "info",
+		Format: "json",
+	}
 }

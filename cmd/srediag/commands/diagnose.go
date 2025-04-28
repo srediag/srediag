@@ -11,18 +11,19 @@ import (
 )
 
 // newDiagnoseCmd creates a new command for running system diagnostics
-// Only CLI wiring is present here; all business logic is delegated to internal/diagnostic CLI_* functions.
+// Only CLI wiring is present here; all business logic is delegated to internal/diagnostic functions:
+// CLI_SystemDiagnostics, CLI_PerformanceDiagnostics, and CLI_SecurityDiagnostics.
 func newDiagnoseCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diagnose [type]",
 		Short: "Run system diagnostics",
-		Long: `The diagnose command runs various diagnostic checks to identify
-potential issues and provide insights about the system.
+		Long: `The diagnose command runs diagnostic checks to identify potential issues.
+It provides insights about the system's health, performance, and security.
 
 Available diagnostic types:
-  - system: Check system health, resource usage, and configuration
-  - performance: Analyze system and application performance metrics
-  - security: Check security configurations and potential vulnerabilities`,
+  - system: Check system health, resource usage, and configuration.
+  - performance: Analyze system and application performance metrics.
+  - security: Check security configurations and potential vulnerabilities.`,
 		RunE: runDiagnose,
 	}
 
@@ -35,10 +36,25 @@ Available diagnostic types:
 
 	return cmd
 }
-
 func runDiagnose(cmd *cobra.Command, args []string) error {
-	fmt.Println("Please specify a diagnostic type to run (use --help for available types)")
-	return cmd.Help()
+	if len(args) == 0 {
+		fmt.Println("Please specify a diagnostic type (e.g., 'system', 'performance', 'security'). Use --help for more details.")
+		return cmd.Help()
+	}
+
+	validTypes := map[string]bool{
+		"system":      true,
+		"performance": true,
+		"security":    true,
+	}
+
+	if !validTypes[args[0]] {
+		fmt.Printf("Error: Invalid diagnostic type '%s'. Please specify a valid type (use --help for available types).\n", args[0])
+		return cmd.Help()
+	}
+
+	fmt.Printf("Running '%s' diagnostics...\n", args[0])
+	return nil
 }
 
 // newSystemDiagCmd wires the 'system' subcommand to diagnostic.CLI_SystemDiagnostics.
@@ -48,7 +64,11 @@ func newSystemDiagCmd(ctx *core.AppContext) *cobra.Command {
 		Short: "Run system diagnostics",
 		Long:  `Check system health, resource usage, and configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return diagnose.CLI_SystemDiagnostics(ctx, cmd, args)
+			err := diagnose.CLI_SystemDiagnostics(ctx, cmd, args)
+			if err != nil {
+				fmt.Printf("Error running system diagnostics: %v\n", err)
+			}
+			return err
 		},
 	}
 }
@@ -60,7 +80,11 @@ func newPerformanceDiagCmd(ctx *core.AppContext) *cobra.Command {
 		Short: "Run performance diagnostics",
 		Long:  `Analyze system and application performance metrics.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return diagnose.CLI_PerformanceDiagnostics(ctx, cmd, args)
+			err := diagnose.CLI_PerformanceDiagnostics(ctx, cmd, args)
+			if err != nil {
+				fmt.Printf("Error running performance diagnostics: %v\n", err)
+			}
+			return err
 		},
 	}
 }
@@ -72,7 +96,11 @@ func newSecurityDiagCmd(ctx *core.AppContext) *cobra.Command {
 		Short: "Run security diagnostics",
 		Long:  `Check security configurations and potential vulnerabilities.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return diagnose.CLI_SecurityDiagnostics(ctx, cmd, args)
+			err := diagnose.CLI_SecurityDiagnostics(ctx, cmd, args)
+			if err != nil {
+				fmt.Printf("Error running security diagnostics: %v\n", err)
+			}
+			return err
 		},
 	}
 }

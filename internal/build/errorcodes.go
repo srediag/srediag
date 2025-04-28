@@ -1,3 +1,3 @@
-// TODO: Implement standardized error codes for build CLI (see architecture/build.md §7)
-// TODO: Provide actionable error messages for common build pitfalls (see architecture/build.md §7)
+// TODO: Implement standardized error codes for the build CLI to improve CI/CD integration.
+// TODO: Provide actionable error messages for common build errors and pitfalls.
 package build

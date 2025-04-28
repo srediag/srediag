@@ -8,8 +8,21 @@ import (
 	"github.com/srediag/srediag/internal/plugin"
 )
 
-// newPluginCmd creates a new command for managing plugins
-// Only CLI wiring is present here; all business logic is delegated to internal/plugin CLI_* functions.
+// newPluginCmd creates the root command for managing plugins in the SREDIAG application.
+// This command serves as a parent for subcommands that allow users to list, enable, disable,
+// and retrieve information about plugins. The function wires these subcommands to their
+// respective handlers in the internal/plugin package, ensuring that all business logic
+// is encapsulated within the internal package. This design promotes separation of concerns
+// by keeping the CLI wiring distinct from the core application logic.
+// The command hierarchy is structured as follows:
+// - plugin: The root command for plugin management.
+//   - list: Lists all available plugins.
+//   - info [name]: Displays detailed information about a specific plugin.
+//   - enable [type] [name]: Enables a plugin of a specified type and name.
+//   - disable [name]: Disables a plugin by its name.
+//
+// This function takes an AppContext as input, which provides the necessary context and
+// dependencies for executing the commands.
 func newPluginCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plugin",
