@@ -1,10 +1,8 @@
 // go.mod (auto-generated via 'go mod init')
 module github.com/srediag/srediag
 
-go 1.24
-
-toolchain go1.24.2
-
+go 1.26.5
+toolchain go1.26.5
 require (
 	github.com/cloudwego/shmipc-go v0.2.0
 	github.com/magefile/mage v1.15.0
