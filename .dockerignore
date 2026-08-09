@@ -1,0 +1,86 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# GitHub
+.github/
+
+# Documentation
+*.md
+docs/
+README.md
+LICENSE
+CHANGELOG.md
+CONTRIBUTING.md
+
+# Development files
+.golangci.yml
+.goreleaser.yml
+.air.toml
+Makefile
+magefiles/
+
+# Kubernetes manifests
+k8s/
+helm/
+
+# Test files
+*_test.go
+test/
+testing/
+coverage.out
+*.test
+*.prof
+
+# Examples and demos
+examples/
+demo/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# CI/CD
+.travis.yml
+.circleci/
+azure-pipelines.yml
+
+# Development environment
+.env.local
+.env.*.local
+docker-compose.override.yml
+
+# Monitoring
+monitoring/
+grafana/
+prometheus/
+
+# Scripts (unless needed for build)
+scripts/
+tools/
+
+# Generated files
+*.generated.go
+*_gen.go
+
+# Vendor (if not needed in image)
+# vendor/

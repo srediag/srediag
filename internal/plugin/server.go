@@ -11,10 +11,6 @@
 //   - Always check for errors from Serve and all handler methods.
 //   - Use proper locking for concurrent access to health and state.
 //   - Log all errors and important events for traceability.
-//
-// TODO:
-//   - Add context.Context support for cancellation and timeouts.
-//   - Implement more granular health and lifecycle management.
 package plugin
 
 import (

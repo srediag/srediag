@@ -13,14 +13,11 @@ import (
 // Usage:
 //   - Use PluginManagerConfig to represent the canonical plugin manager config structure.
 //   - Use LoadPluginManagerConfig to load and overlay plugin manager config from YAML, environment, and CLI flags.
+//   - Use PluginConfig for individual plugin configurations.
 //
 // Best Practices:
 //   - Always validate required fields after loading config.
 //   - Use canonical types for all new code.
-//
-// TODO:
-//   - Add context.Context support for cancellation and timeouts.
-//   - Add stricter schema validation and error reporting.
 
 // PluginManagerConfig represents the canonical plugin manager config structure.
 //
@@ -33,6 +30,14 @@ type PluginManagerConfig struct {
 		ExecDir string   `yaml:"exec_dir"`
 		Enabled []string `yaml:"enabled"`
 	} `yaml:"plugins"`
+}
+
+// PluginConfig represents the configuration for an individual plugin component
+type PluginConfig struct {
+	Name    string                 `yaml:"name"`
+	Type    string                 `yaml:"type"`
+	Enabled bool                   `yaml:"enabled"`
+	Config  map[string]interface{} `yaml:"config,omitempty"`
 }
 
 // LoadPluginManagerConfig loads and overlays the plugin manager config from configs/srediag.yaml.
@@ -50,5 +55,25 @@ func LoadPluginManagerConfig(cliFlags map[string]string) (*PluginManagerConfig, 
 	if err := core.LoadConfigWithOverlay(&cfg, cliFlags, core.WithConfigPathSuffix("plugin")); err != nil {
 		return nil, fmt.Errorf("failed to load plugin manager config: %w", err)
 	}
+
+	// Set defaults if not configured
+	if cfg.Plugins.Dir == "" {
+		cfg.Plugins.Dir = "/opt/srediag/plugins"
+	}
+	if cfg.Plugins.ExecDir == "" {
+		cfg.Plugins.ExecDir = "/tmp/srediag/plugins"
+	}
+
 	return &cfg, nil
+}
+
+// ValidateConfig validates the plugin manager configuration
+func (c *PluginManagerConfig) ValidateConfig() error {
+	if c.Plugins.Dir == "" {
+		return fmt.Errorf("plugins.dir cannot be empty")
+	}
+	if c.Plugins.ExecDir == "" {
+		return fmt.Errorf("plugins.exec_dir cannot be empty")
+	}
+	return nil
 }

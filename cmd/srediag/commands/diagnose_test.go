@@ -119,8 +119,8 @@ func TestRunDiagnose_InvalidType_ShowsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestRunDiagnose_ValidTypes(t *testing.T) {
-	validTypes := []string{"system", "performance", "security"}
+func TestRunDiagnose_ImplementedTypes(t *testing.T) {
+	validTypes := []string{"performance", "security"}
 	for _, typ := range validTypes {
 		ctx := &core.AppContext{}
 		cmd := newDiagnoseCmd(ctx)
@@ -130,6 +130,16 @@ func TestRunDiagnose_ValidTypes(t *testing.T) {
 		err := cmd.Execute()
 		assert.NoError(t, err)
 	}
+}
+
+func TestRunDiagnose_SystemReportsNotImplemented(t *testing.T) {
+	ctx := &core.AppContext{}
+	cmd := newDiagnoseCmd(ctx)
+	cmd.SetArgs([]string{"system"})
+
+	err := cmd.Execute()
+
+	assert.ErrorContains(t, err, "system diagnostics not yet implemented")
 }
 
 func TestSystemDiagCmd_DelegatesToDiagnose(t *testing.T) {

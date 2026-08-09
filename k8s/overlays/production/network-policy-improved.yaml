@@ -1,0 +1,121 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: srediag-network-policy
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: srediag
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  # Allow metrics scraping from Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+    ports:
+    - protocol: TCP
+      port: 8889  # Metrics port
+  
+  # Allow OTLP traffic from applications
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          telemetry-enabled: "true"
+    - namespaceSelector:
+        matchLabels:
+          name: default
+    ports:
+    - protocol: TCP
+      port: 4317  # OTLP gRPC
+    - protocol: TCP
+      port: 4318  # OTLP HTTP
+  
+  # Allow health checks from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 13133  # Health check
+  
+  # Allow Kubernetes API server health probes
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+      podSelector:
+        matchLabels:
+          component: kube-apiserver
+    ports:
+    - protocol: TCP
+      port: 13133  # Health check
+  
+  egress:
+  # Allow DNS resolution (restricted to kube-system)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  
+  # Allow communication to Jaeger collector
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: jaeger-collector
+    ports:
+    - protocol: TCP
+      port: 14250  # Jaeger gRPC
+    - protocol: TCP
+      port: 14268  # Jaeger HTTP
+  
+  # Allow HTTPS for external exporters (if needed)
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow communication to Kubernetes API
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+      podSelector:
+        matchLabels:
+          component: kube-apiserver
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow pod-to-pod communication within namespace
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: srediag
+    ports:
+    - protocol: TCP
+      port: 4317
+    - protocol: TCP
+      port: 4318
+    - protocol: TCP
+      port: 8889

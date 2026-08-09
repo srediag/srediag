@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - resourcequota.yaml
+  - configmap.yaml
+  - secret.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml
+  - hpa.yaml
+  - pdb.yaml
+
+images:
+  - name: ghcr.io/srediag/srediag
+    newTag: latest
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/component: observability-agent
+      app.kubernetes.io/name: srediag
+      app.kubernetes.io/part-of: observability-platform
+
+patches:
+  - path: podsecurity.yaml

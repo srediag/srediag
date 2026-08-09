@@ -1,0 +1,21 @@
+# Docker Compose override for local development
+# This file is automatically loaded when running docker-compose commands
+
+version: '3.8'
+
+services:
+  srediag-dev:
+    environment:
+      - SREDIAG_LOG_LEVEL=debug
+      - SREDIAG_LOG_FORMAT=console
+      - SREDIAG_ENV=development
+      - GODEBUG=gctrace=1
+    volumes:
+      - .:/app:cached
+      - go-mod-cache:/go/pkg/mod
+      - ./tmp:/app/tmp
+    working_dir: /app
+    command: ["air", "-c", ".air.toml"]
+
+volumes:
+  go-mod-cache:

@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: srediag
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: srediag
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8889"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+  - name: metrics
+    port: 8889
+    targetPort: metrics
+    protocol: TCP
+  - name: health
+    port: 13133
+    targetPort: health
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: srediag
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: srediag-headless
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: srediag
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+  - name: metrics
+    port: 8889
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: srediag

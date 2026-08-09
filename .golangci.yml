@@ -1,33 +1,75 @@
 version: "2"
+
+run:
+  timeout: 5m
+  issues-exclude-dirs:
+    - vendor
+    - third_party
+    - builtin
+    - examples
+    - upstream
+  issues-exclude-files:
+    - ".*_generated\\.go$"
+
+output:
+  formats:
+    colored-line-number:
+      path: stdout
+  print-issued-line: true
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/srediag/srediag
+  govet:
+    enable:
+      - shadow
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 150
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  misspell:
+    locale: US
+  lll:
+    line-length: 140
+  gofmt:
+    simplify: true
+  revive:
+    min-confidence: 0.8
+
 linters:
-  exclusions:
-    generated: lax
-    presets:
-    - comments
-    - common-false-positives
-    - legacy
-    - std-error-handling
-    paths:
-    - pkg/mod$
-    - vendor$
-    - third_party$
-    - builtin$
-    - examples$
-    - upstream$
-formatters:
   enable:
-  - gofmt
-  - goimports
-  settings:
-    goimports:
-      local-prefixes:
-      - github.com/srediag/srediag
-  exclusions:
-    generated: lax
-    paths:
-    - pkg/mod$
-    - vendor$
-    - third_party$
-    - builtin$
-    - examples$
-    - upstream$
+    - bodyclose
+    - depguard
+    - dogsled
+    - dupl
+    - errcheck
+    - gochecknoinits
+    - goconst
+    - gocyclo
+    - revive
+    - gosec
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+    - path: tests/
+      linters:
+        - dupl
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0

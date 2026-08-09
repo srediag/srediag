@@ -1,0 +1,252 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "SREDIAG Detailed Metrics",
+    "tags": ["srediag", "detailed", "observability"],
+    "style": "dark",
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 0,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "refresh": "10s",
+    "schemaVersion": 27,
+    "version": 1,
+    "links": [],
+    "panels": [
+      {
+        "id": 1,
+        "title": "Receiver Metrics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(otelcol_receiver_accepted_spans_total[5m])",
+            "legendFormat": "Accepted - {{receiver}}/{{transport}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(otelcol_receiver_refused_spans_total[5m])",
+            "legendFormat": "Refused - {{receiver}}/{{transport}}",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "yAxes": [
+          {
+            "label": "Spans/sec",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Processor Metrics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(otelcol_processor_accepted_spans_total[5m])",
+            "legendFormat": "Accepted - {{processor}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(otelcol_processor_refused_spans_total[5m])",
+            "legendFormat": "Refused - {{processor}}",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(otelcol_processor_dropped_spans_total[5m])",
+            "legendFormat": "Dropped - {{processor}}",
+            "refId": "C"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "yAxes": [
+          {
+            "label": "Spans/sec",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Exporter Metrics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(otelcol_exporter_sent_spans_total[5m])",
+            "legendFormat": "Sent - {{exporter}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(otelcol_exporter_send_failed_spans_total[5m])",
+            "legendFormat": "Failed - {{exporter}}",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "yAxes": [
+          {
+            "label": "Spans/sec",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Queue Size",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "otelcol_processor_batch_queue_size",
+            "legendFormat": "Queue Size - {{processor}}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "yAxes": [
+          {
+            "label": "Count",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Memory Statistics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "go_memstats_alloc_bytes{job=\"srediag\"}",
+            "legendFormat": "Allocated",
+            "refId": "A"
+          },
+          {
+            "expr": "go_memstats_heap_alloc_bytes{job=\"srediag\"}",
+            "legendFormat": "Heap Allocated",
+            "refId": "B"
+          },
+          {
+            "expr": "go_memstats_heap_inuse_bytes{job=\"srediag\"}",
+            "legendFormat": "Heap In Use",
+            "refId": "C"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "yAxes": [
+          {
+            "label": "Bytes",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "GC Statistics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(go_gc_duration_seconds_total{job=\"srediag\"}[5m])",
+            "legendFormat": "GC Duration",
+            "refId": "A"
+          },
+          {
+            "expr": "go_memstats_gc_cpu_fraction{job=\"srediag\"}",
+            "legendFormat": "GC CPU Fraction",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        },
+        "yAxes": [
+          {
+            "label": "Fraction",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "HTTP Requests",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"srediag\"}[5m])",
+            "legendFormat": "{{method}} {{handler}} - {{code}}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        },
+        "yAxes": [
+          {
+            "label": "Requests/sec",
+            "show": true
+          },
+          {
+            "show": true
+          }
+        ]
+      }
+    ]
+  }
+}

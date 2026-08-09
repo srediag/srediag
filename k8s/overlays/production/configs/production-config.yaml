@@ -1,0 +1,56 @@
+service:
+  name: "srediag"
+  port: 8080
+  environment: "production"
+
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+
+security:
+  tls:
+    enabled: true
+    cert_file: "/etc/tls/tls.crt"
+    key_file: "/etc/tls/tls.key"
+    min_version: "1.2"
+    verify_client: false
+  auth:
+    type: "jwt"
+    jwt:
+      secret: "REPLACE_WITH_SECRET"
+      lifetime: "24h"
+  rbac:
+    enabled: true
+    default_role: "viewer"
+  quotas:
+    spans_per_second: 10000
+    logs_mib_per_min: 100
+  rate_limit:
+    enabled: true
+    rps: 1000
+    burst: 2000
+
+collector:
+  enabled: true
+  config_path: "/etc/srediag/collector.yaml"
+  memory_limit_mib: 1024
+
+plugins:
+  dir: "/opt/srediag/plugins"
+  exec_dir: "/tmp/srediag/plugins"
+  enabled:
+    - "debug-receiver"
+    - "simple-plugin"
+
+diagnostics:
+  defaults:
+    output_format: "json"
+    timeout: "60s"
+
+build:
+  output_dir: "/opt/srediag/build"
+  dist:
+    name: "srediag-production"
+    description: "SREDIAG Production Distribution"
+    version: "latest"

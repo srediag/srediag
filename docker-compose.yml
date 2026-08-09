@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  srediag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: srediag
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP  
+      - "8889:8889"   # Prometheus metrics
+      - "13133:13133" # Health check
+    volumes:
+      - ./configs:/configs:ro
+      - ./data:/data
+    environment:
+      - SREDIAG_LOG_LEVEL=info
+      - SREDIAG_LOG_FORMAT=json
+    healthcheck:
+      test: ["/srediag", "service", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - observability
+
+  # Development version with hot-reload
+  srediag-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: srediag-dev
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics
+      - "13133:13133" # Health check
+      - "1777:1777"   # pprof
+      - "6060:6060"   # debug
+    volumes:
+      - .:/app:cached
+      - go-mod-cache:/go/pkg/mod
+    environment:
+      - SREDIAG_LOG_LEVEL=debug
+      - SREDIAG_LOG_FORMAT=console
+      - SREDIAG_ENV=development
+    networks:
+      - observability
+    profiles:
+      - dev
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: jaeger
+    ports:
+      - "14250:14250" # gRPC
+      - "16686:16686" # Web UI
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - observability
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - observability
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - observability
+
+  # Test data generator
+  otel-demo-generator:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: otel-demo-generator
+    volumes:
+      - ./examples/demo-generator.yaml:/etc/otelcol/config.yaml:ro
+    command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      - srediag
+    networks:
+      - observability
+    profiles:
+      - demo
+
+volumes:
+  go-mod-cache:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  observability:
+    driver: bridge

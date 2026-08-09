@@ -7,6 +7,7 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 
 	"go.opentelemetry.io/collector/featuregate"
@@ -77,10 +78,18 @@ func defaultConfig() *Logger {
 func NewLogger(cfg *Logger) (*Logger, error) {
 	if cfg == nil {
 		cfg = defaultConfig()
+		// Log when defaults are applied for better debugging
+		fmt.Fprintf(os.Stderr, "Info: using default logger configuration (level=%s, format=%s)\n", cfg.Level, cfg.Format)
 	}
-	// Patch: Default to 'console' if Format is empty
+
+	// Validate and set defaults for empty fields
 	if cfg.Format == "" {
 		cfg.Format = "console"
+		fmt.Fprintf(os.Stderr, "Info: defaulting logger format to 'console'\n")
+	}
+	if cfg.Level == "" {
+		cfg.Level = "info"
+		fmt.Fprintf(os.Stderr, "Info: defaulting logger level to 'info'\n")
 	}
 
 	// Create basic encoder config

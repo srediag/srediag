@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: srediag-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - srediag.example.com
+    secretName: srediag-tls
+  rules:
+  - host: srediag.example.com
+    http:
+      paths:
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: srediag
+            port:
+              number: 13133
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: srediag
+            port:
+              number: 8889

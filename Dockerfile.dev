@@ -1,0 +1,49 @@
+# Development Dockerfile for SREDIAG
+# This image includes development tools and hot-reload capabilities
+
+FROM golang:1.21-alpine AS dev
+
+# Install development dependencies
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    tzdata \
+    bash \
+    curl \
+    vim \
+    make
+
+WORKDIR /app
+
+# Install development tools
+RUN go install github.com/magefile/mage@latest && \
+    go install github.com/cosmtrek/air@latest && \
+    go install golang.org/x/tools/cmd/goimports@latest && \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+    go install golang.org/x/vuln/cmd/govulncheck@latest
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Create directories for development
+RUN mkdir -p /app/bin /app/tmp /app/logs
+
+# Set environment for development
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+ENV SREDIAG_LOG_LEVEL=debug
+ENV SREDIAG_ENV=development
+
+# Expose ports for development
+EXPOSE 4317 4318 8889 13133 1777 6060
+
+# Development user (root for flexibility in dev)
+USER root
+
+# Default command for development
+CMD ["air", "-c", ".air.toml"]

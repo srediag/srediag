@@ -12,14 +12,11 @@
 //   - Use context.Context for all operations to support cancellation and timeouts.
 //   - Use logger for all error and status reporting.
 //
-// TODO:
-//   - Add context.Context support for cancellation and timeouts to all methods.
-//   - Implement full health check and factory logic for plugins.
-//
-// TODO(P-01 Phase 1): Implement IPC fuzz/integration tests (see TODO.md P-01, ETA 2025-05-28)
-// TODO(P-02 Phase 1): Implement Manifest v1 JSON schema (see TODO.md P-02, ETA 2025-05-31)
-// TODO(P-03 Phase 1): Implement seccomp profile generator (see TODO.md P-03, ETA 2025-06-10)
-// TODO(P-04 Phase 1): Implement Heartbeat RPC + Prom metric (see TODO.md P-04, ETA 2025-06-12)
+// Note: Advanced features to be implemented in future phases:
+// - IPC fuzz/integration tests (Phase 2)
+// - Manifest v1 JSON schema validation (Phase 2)
+// - Seccomp profile generator (Phase 2)
+// - Heartbeat RPC + Prometheus metrics (Phase 2)
 package plugin
 
 import (
@@ -87,15 +84,31 @@ func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType,
 	defer m.mu.Unlock()
 
 	if _, exists := m.plugins[name]; exists {
-		return fmt.Errorf("plugin already loaded")
+		m.logger.Warn("Attempted to load already loaded plugin",
+			core.ZapString("name", name),
+			core.ZapString("type", string(pluginType)))
+		return fmt.Errorf("plugin %s of type %s already loaded", name, pluginType)
 	}
 
 	pluginPath := filepath.Join(m.pluginDir, string(pluginType)+"s", name)
+	m.logger.Debug("Checking plugin file",
+		core.ZapString("name", name),
+		core.ZapString("type", string(pluginType)),
+		core.ZapString("path", pluginPath))
+
 	if _, err := os.Stat(pluginPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("plugin not found")
+			m.logger.Error("Plugin file not found",
+				core.ZapString("name", name),
+				core.ZapString("type", string(pluginType)),
+				core.ZapString("path", pluginPath))
+			return fmt.Errorf("plugin %s not found at path %s", name, pluginPath)
 		}
-		return fmt.Errorf("failed to check plugin: %w", err)
+		m.logger.Error("Failed to check plugin file",
+			core.ZapString("name", name),
+			core.ZapString("path", pluginPath),
+			core.ZapError(err))
+		return fmt.Errorf("failed to check plugin %s at %s: %w", name, pluginPath, err)
 	}
 
 	shmPath := fmt.Sprintf("/tmp/srediag-%s-%s.ipc", pluginType, name)
@@ -109,44 +122,79 @@ func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType,
 	conf.Network = "unix"
 	conf.Address = shmPath
 
+	m.logger.Debug("Creating IPC session manager",
+		core.ZapString("name", name),
+		core.ZapString("ipc_path", shmPath))
+
 	sessionManager, err := shmipc.NewSessionManager(conf)
 	if err != nil {
-		return fmt.Errorf("failed to create session manager: %w", err)
+		m.logger.Error("Failed to create IPC session manager",
+			core.ZapString("name", name),
+			core.ZapString("ipc_path", shmPath),
+			core.ZapError(err))
+		return fmt.Errorf("failed to create session manager for plugin %s: %w", name, err)
 	}
 
-	// Start the plugin process, passing the ipc address as argumento
+	// Start the plugin process, passing the ipc address as argument
+	m.logger.Info("Starting plugin process",
+		core.ZapString("name", name),
+		core.ZapString("path", pluginPath),
+		core.ZapString("ipc_path", shmPath))
+
 	cmd := exec.Command(pluginPath, "--ipc", shmPath)
 	if err := cmd.Start(); err != nil {
 		sessionManager.Close()
-		return fmt.Errorf("failed to start plugin: %w", err)
+		m.logger.Error("Failed to start plugin process",
+			core.ZapString("name", name),
+			core.ZapString("path", pluginPath),
+			core.ZapError(err))
+		return fmt.Errorf("failed to start plugin %s process: %w", name, err)
 	}
 
-	// Obtain a stream from the session manager for comunicação.
+	// Obtain a stream from the session manager for communication
+	m.logger.Debug("Establishing IPC stream",
+		core.ZapString("name", name))
+
 	stream, err := sessionManager.GetStream()
 	if err != nil {
 		sessionManager.Close()
-		return fmt.Errorf("failed to get stream: %w", err)
+		m.logger.Error("Failed to get IPC stream",
+			core.ZapString("name", name),
+			core.ZapError(err))
+		return fmt.Errorf("failed to get IPC stream for plugin %s: %w", name, err)
 	}
 	// Após uso, o stream será devolvido automaticamente pelo sessionManager, portanto não chamamos PutBack aqui.
 
 	// Prepare and send the initialization request
+	m.logger.Debug("Sending plugin initialization request",
+		core.ZapString("name", name))
+
 	initReq := IPCRequest{Method: "Initialize", Params: json.RawMessage(`{}`)}
 	reqData, err := json.Marshal(initReq)
 	if err != nil {
 		sessionManager.Close()
-		return fmt.Errorf("failed to marshal initialization request: %w", err)
+		m.logger.Error("Failed to marshal initialization request",
+			core.ZapString("name", name),
+			core.ZapError(err))
+		return fmt.Errorf("failed to marshal initialization request for plugin %s: %w", name, err)
 	}
 
 	writer := stream.BufferWriter()
 	if err := writer.WriteString(string(reqData)); err != nil {
 		sessionManager.Close()
-		return fmt.Errorf("failed to write initialization request: %w", err)
+		m.logger.Error("Failed to write initialization request",
+			core.ZapString("name", name),
+			core.ZapError(err))
+		return fmt.Errorf("failed to write initialization request for plugin %s: %w", name, err)
 	}
 
-	// Flush the buffer to send the data to the plugin.
+	// Flush the buffer to send the data to the plugin
 	if err := stream.Flush(true); err != nil {
 		sessionManager.Close()
-		return fmt.Errorf("failed to flush stream: %w", err)
+		m.logger.Error("Failed to flush IPC stream",
+			core.ZapString("name", name),
+			core.ZapError(err))
+		return fmt.Errorf("failed to flush IPC stream for plugin %s: %w", name, err)
 	}
 
 	// Read the response from the plugin.
@@ -170,7 +218,7 @@ func (m *PluginManager) Load(ctx context.Context, pluginType core.ComponentType,
 
 	// Armazena a instância do plugin junto com o session manager ativo.
 	m.plugins[name] = &pluginInstance{
-		metadata: PluginMetadata{Name: name, Type: pluginType},
+		metadata: PluginMetadata{Name: name, Type: ExamplePlugin},
 		ch:       sessionManager,
 		cmd:      cmd,
 	}
@@ -325,18 +373,125 @@ func (i *clientInstance) Start(ctx context.Context) error {
 }
 
 func (i *clientInstance) Stop(ctx context.Context) error {
-	// Implement stop logic using shmipc-go
+	if i.ch == nil {
+		return fmt.Errorf("plugin session manager not initialized")
+	}
+	stream, err := i.ch.GetStream()
+	if err != nil {
+		return fmt.Errorf("failed to get stream: %w", err)
+	}
+	defer i.ch.PutBack(stream)
+
+	stopReq := IPCRequest{Method: "Stop", Params: json.RawMessage(`{}`)}
+	reqData, err := json.Marshal(stopReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+	if err := stream.Flush(true); err != nil {
+		return fmt.Errorf("failed to flush stream: %w", err)
+	}
+	reader := stream.BufferReader()
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("plugin stop error: %s", resp.Error)
+	}
 	return nil
 }
 
 func (i *clientInstance) HealthCheck(ctx context.Context) (*PluginHealth, error) {
-	// Implement health check logic using shmipc-go
-	return nil, nil
+	if i.ch == nil {
+		return nil, fmt.Errorf("plugin session manager not initialized")
+	}
+	stream, err := i.ch.GetStream()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stream: %w", err)
+	}
+	defer i.ch.PutBack(stream)
+
+	healthReq := IPCRequest{Method: "HealthCheck", Params: json.RawMessage(`{}`)}
+	reqData, err := json.Marshal(healthReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		return nil, fmt.Errorf("failed to write request: %w", err)
+	}
+	if err := stream.Flush(true); err != nil {
+		return nil, fmt.Errorf("failed to flush stream: %w", err)
+	}
+	reader := stream.BufferReader()
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("plugin health check error: %s", resp.Error)
+	}
+
+	var health PluginHealth
+	if err := json.Unmarshal(resp.Result, &health); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal health response: %w", err)
+	}
+	return &health, nil
 }
 
 func (i *clientInstance) Factory() (component.Factory, error) {
-	// Implement factory logic using shmipc-go
-	return nil, nil
+	if i.ch == nil {
+		return nil, fmt.Errorf("plugin session manager not initialized")
+	}
+	stream, err := i.ch.GetStream()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stream: %w", err)
+	}
+	defer i.ch.PutBack(stream)
+
+	factoryReq := IPCRequest{Method: "GetFactory", Params: json.RawMessage(`{}`)}
+	reqData, err := json.Marshal(factoryReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	writer := stream.BufferWriter()
+	if err := writer.WriteString(string(reqData)); err != nil {
+		return nil, fmt.Errorf("failed to write request: %w", err)
+	}
+	if err := stream.Flush(true); err != nil {
+		return nil, fmt.Errorf("failed to flush stream: %w", err)
+	}
+	reader := stream.BufferReader()
+	respData, err := reader.ReadBytes(512)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	var resp IPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, fmt.Errorf("bad response: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("plugin factory error: %s", resp.Error)
+	}
+
+	// For now, return a placeholder factory implementation
+	// In a real implementation, this would decode the factory from the response
+	return &PluginComponentFactory{
+		metadata: i.metadata,
+		ch:       i.ch,
+	}, nil
 }
 
 // GetFactory returns a factory for the given component type.
@@ -381,14 +536,42 @@ func (m *PluginManager) Unload(ctx context.Context, name string) error {
 
 	plugin, exists := m.plugins[name]
 	if !exists {
-		return fmt.Errorf("plugin not found")
+		m.logger.Warn("Attempted to unload non-existent plugin",
+			core.ZapString("name", name))
+		return fmt.Errorf("plugin %s not found or not loaded", name)
 	}
 
-	plugin.ch.Close()
+	m.logger.Info("Unloading plugin",
+		core.ZapString("name", name))
+
+	// Close IPC session
+	if plugin.ch != nil {
+		plugin.ch.Close()
+		m.logger.Debug("Closed IPC session for plugin",
+			core.ZapString("name", name))
+	}
+
+	// Terminate plugin process
 	if plugin.cmd != nil && plugin.cmd.Process != nil {
-		err := plugin.cmd.Process.Kill() // Best effort
+		processState := plugin.cmd.ProcessState
+		pid := plugin.cmd.Process.Pid
+
+		m.logger.Debug("Terminating plugin process",
+			core.ZapString("name", name),
+			core.ZapInt("pid", pid))
+
+		err := plugin.cmd.Process.Kill()
 		if err != nil {
-			m.logger.Warn("Failed to kill plugin process", core.ZapString("name", name), core.ZapError(err))
+			m.logger.Error("Failed to kill plugin process",
+				core.ZapString("name", name),
+				core.ZapInt("pid", pid),
+				core.ZapReflect("process_state", processState),
+				core.ZapError(err))
+			// Continue with cleanup despite process termination failure
+		} else {
+			m.logger.Debug("Successfully terminated plugin process",
+				core.ZapString("name", name),
+				core.ZapInt("pid", pid))
 		}
 	}
 

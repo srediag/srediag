@@ -1,0 +1,15 @@
+# Pod Security Standards configuration for Kubernetes 1.21+
+# Replaces deprecated PodSecurityPolicy
+
+# Update namespace to enforce Pod Security Standards
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/name: srediag
+    app.kubernetes.io/component: namespace
+    # Pod Security Standards labels (Kubernetes 1.21+)
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

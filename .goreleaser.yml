@@ -1,0 +1,111 @@
+version: 2
+
+project_name: srediag
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: srediag
+    main: ./cmd/srediag
+    binary: srediag
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    goarm:
+      - 6
+      - 7
+    ldflags:
+      - -s -w
+      - -X github.com/srediag/srediag/internal/core.Version={{ .Version }}
+      - -X github.com/srediag/srediag/internal/core.Commit={{ .Commit }}
+      - -X github.com/srediag/srediag/internal/core.Date={{ .Date }}
+
+archives:
+  - id: srediag
+    builds:
+      - srediag
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - LICENSE
+      - README.md
+      - docs/**/*
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^build:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+dockers:
+  - image_templates:
+      - "ghcr.io/srediag/srediag:{{ .Version }}-amd64"
+      - "ghcr.io/srediag/srediag:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+  
+  - image_templates:
+      - "ghcr.io/srediag/srediag:{{ .Version }}-arm64"
+      - "ghcr.io/srediag/srediag:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/srediag/srediag:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/srediag/srediag:{{ .Version }}-amd64"
+      - "ghcr.io/srediag/srediag:{{ .Version }}-arm64"
+  
+  - name_template: "ghcr.io/srediag/srediag:latest"
+    image_templates:
+      - "ghcr.io/srediag/srediag:latest-amd64"
+      - "ghcr.io/srediag/srediag:latest-arm64"
+
+sboms:
+  - artifacts: archive
+  - artifacts: binary
+
+signs:
+  - cmd: cosign
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "${artifact}"
+    artifacts: checksum

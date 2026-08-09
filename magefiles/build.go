@@ -4,7 +4,8 @@
 // TODO: Enforce signature verification for all deployment artifacts (see docs/architecture/build.md §1)
 // TODO: Implement static collector build pipeline using otelcol-builder (see docs/architecture/build.md §2)
 // TODO: Implement plugin build and packaging pipeline with manifest, SBOM, and cosign signing (see docs/architecture/build.md §3)
-// TODO: Implement mage targets for build, build:collector, build:plugin, build:image, sbom, sign, and CI (see docs/architecture/build.md §4)
+// TODO: Implement mage targets for build, build:collector, build:plugin, build:image, sbom, sign,
+// and CI (see docs/architecture/build.md §4)
 // TODO: Implement version synchronization between go.mod and builder YAML (see docs/architecture/build.md §5)
 // TODO: Implement multi-arch OCI image build with Docker buildx (see docs/architecture/build.md §7)
 // TODO: Implement build error codes (0-5) for CI/CD integration (see docs/architecture/build.md §9)

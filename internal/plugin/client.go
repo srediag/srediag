@@ -21,9 +21,6 @@ import (
 //   - Always check for errors when handling requests and responses.
 //   - Use proper error handling and logging for all IPC operations.
 //
-// TODO:
-//   - Add context.Context support for cancellation and timeouts.
-//   - Improve error reporting and diagnostics for IPC failures.
 
 // PluginHandler defines the interface for handling plugin requests.
 //

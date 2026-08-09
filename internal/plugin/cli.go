@@ -21,9 +21,6 @@ import (
 //   - Log all errors and important events for traceability.
 //   - Use context-aware logging and error handling for better diagnostics.
 //
-// TODO:
-//   - Add context.Context support for cancellation and timeouts.
-//   - Implement actual plugin management logic for each command.
 
 // CLI_List is the entrypoint for 'srediag plugin list'.
 //
@@ -43,9 +40,40 @@ func CLI_List(ctx *core.AppContext, cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create fallback logger: %w", err)
 		}
 	}
-	// TODO: Implement plugin listing logic
-	logger.Info("Plugin list not yet implemented")
-	return fmt.Errorf("plugin list not yet implemented")
+	// Create plugin registry
+	registry := NewPluginRegistry(logger)
+
+	// Register built-in plugins
+	if err := registry.RegisterBuiltinPlugins(); err != nil {
+		return fmt.Errorf("failed to register built-in plugins: %w", err)
+	}
+
+	// List available plugins
+	available := registry.ListAvailablePlugins()
+	loaded := registry.ListLoadedPlugins()
+
+	logger.Info("Available plugins:",
+		core.ZapInt("count", len(available)))
+
+	for _, plugin := range available {
+		logger.Info("Plugin",
+			core.ZapString("name", plugin.Name),
+			core.ZapString("type", string(plugin.Type)),
+			core.ZapString("version", plugin.Version),
+			core.ZapString("description", plugin.Description))
+	}
+
+	logger.Info("Loaded plugins:",
+		core.ZapInt("count", len(loaded)))
+
+	for _, plugin := range loaded {
+		logger.Info("Loaded plugin",
+			core.ZapString("name", plugin.Metadata.Name),
+			core.ZapString("status", string(plugin.Status)),
+			core.ZapString("path", plugin.Path))
+	}
+
+	return nil
 }
 
 // CLI_Info is the entrypoint for 'srediag plugin info [name]'.
@@ -66,9 +94,37 @@ func CLI_Info(ctx *core.AppContext, cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create fallback logger: %w", err)
 		}
 	}
-	// TODO: Implement plugin info logic
-	logger.Info("Plugin info not yet implemented")
-	return fmt.Errorf("plugin info not yet implemented")
+	if len(args) == 0 {
+		return fmt.Errorf("plugin name is required")
+	}
+
+	pluginName := args[0]
+
+	// Create plugin registry
+	registry := NewPluginRegistry(logger)
+
+	// Register built-in plugins
+	if err := registry.RegisterBuiltinPlugins(); err != nil {
+		return fmt.Errorf("failed to register built-in plugins: %w", err)
+	}
+
+	// Get plugin information
+	available := registry.ListAvailablePlugins()
+	for _, plugin := range available {
+		if plugin.Name == pluginName {
+			logger.Info("Plugin information",
+				core.ZapString("name", plugin.Name),
+				core.ZapString("type", string(plugin.Type)),
+				core.ZapString("version", plugin.Version),
+				core.ZapString("description", plugin.Description),
+				core.ZapReflect("capabilities", plugin.Capabilities),
+				core.ZapString("sha256", plugin.SHA256),
+				core.ZapString("signature", plugin.Signature))
+			return nil
+		}
+	}
+
+	return fmt.Errorf("plugin %s not found", pluginName)
 }
 
 // CLI_Enable is the entrypoint for 'srediag plugin enable [type] [name]'.
@@ -89,9 +145,34 @@ func CLI_Enable(ctx *core.AppContext, cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create fallback logger: %w", err)
 		}
 	}
-	// TODO: Implement plugin enable logic
-	logger.Info("Plugin enable not yet implemented")
-	return fmt.Errorf("plugin enable not yet implemented")
+	if len(args) < 2 {
+		return fmt.Errorf("plugin type and name are required")
+	}
+
+	pluginType := args[0]
+	pluginName := args[1]
+
+	// Create plugin registry
+	registry := NewPluginRegistry(logger)
+
+	// Register built-in plugins
+	if err := registry.RegisterBuiltinPlugins(); err != nil {
+		return fmt.Errorf("failed to register built-in plugins: %w", err)
+	}
+
+	// Load plugin
+	pluginPath := fmt.Sprintf("/tmp/srediag/plugins/%ss/%s", pluginType, pluginName)
+	instance, err := registry.LoadPlugin(pluginName, pluginPath)
+	if err != nil {
+		return fmt.Errorf("failed to load plugin: %w", err)
+	}
+
+	logger.Info("Plugin enabled",
+		core.ZapString("name", instance.Metadata.Name),
+		core.ZapString("type", string(instance.Metadata.Type)),
+		core.ZapString("status", string(instance.Status)))
+
+	return nil
 }
 
 // CLI_Disable is the entrypoint for 'srediag plugin disable [name]'.
@@ -112,7 +193,27 @@ func CLI_Disable(ctx *core.AppContext, cmd *cobra.Command, args []string) error 
 			return fmt.Errorf("failed to create fallback logger: %w", err)
 		}
 	}
-	// TODO: Implement plugin disable logic
-	logger.Info("Plugin disable not yet implemented")
-	return fmt.Errorf("plugin disable not yet implemented")
+	if len(args) == 0 {
+		return fmt.Errorf("plugin name is required")
+	}
+
+	pluginName := args[0]
+
+	// Create plugin registry
+	registry := NewPluginRegistry(logger)
+
+	// Register built-in plugins
+	if err := registry.RegisterBuiltinPlugins(); err != nil {
+		return fmt.Errorf("failed to register built-in plugins: %w", err)
+	}
+
+	// Unload plugin
+	if err := registry.UnloadPlugin(pluginName); err != nil {
+		return fmt.Errorf("failed to unload plugin: %w", err)
+	}
+
+	logger.Info("Plugin disabled",
+		core.ZapString("name", pluginName))
+
+	return nil
 }

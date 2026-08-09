@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: srediag-production
+
+namespace: observability
+
+resources:
+- ../../base
+- network-policy.yaml
+- ingress.yaml
+
+
+images:
+- name: ghcr.io/srediag/srediag
+  newTag: v1.0.0
+
+replicas:
+- count: 5
+  name: srediag
+
+
+configMapGenerator:
+- files:
+  - configs/production-config.yaml
+  name: srediag-production-config
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/version: 1.0.0
+    environment: production
+patches:
+- path: deployment-patch.yaml
+  target:
+    kind: Deployment
+    name: srediag
+- path: hpa-patch.yaml
+  target:
+    kind: HorizontalPodAutoscaler
+    name: srediag

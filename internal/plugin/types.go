@@ -18,8 +18,36 @@ import (
 	"time"
 
 	"github.com/cloudwego/shmipc-go"
+)
 
-	"github.com/srediag/srediag/internal/core"
+// PluginType represents the type of plugin
+type PluginType string
+
+const (
+	// ReceiverPlugin receives telemetry data
+	ReceiverPlugin PluginType = "receiver"
+	// ProcessorPlugin processes telemetry data
+	ProcessorPlugin PluginType = "processor"
+	// ExporterPlugin exports telemetry data
+	ExporterPlugin PluginType = "exporter"
+	// ExtensionPlugin provides additional functionality
+	ExtensionPlugin PluginType = "extension"
+	// ExamplePlugin is for example/test plugins
+	ExamplePlugin PluginType = "example"
+)
+
+// PluginStatus represents the status of a plugin
+type PluginStatus string
+
+const (
+	// StatusLoaded indicates the plugin is loaded but not running
+	StatusLoaded PluginStatus = "loaded"
+	// StatusRunning indicates the plugin is running
+	StatusRunning PluginStatus = "running"
+	// StatusStopped indicates the plugin is stopped
+	StatusStopped PluginStatus = "stopped"
+	// StatusFailed indicates the plugin has failed
+	StatusFailed PluginStatus = "failed"
 )
 
 // PluginMetadata describes all identity, version, and security attributes for a plugin.
@@ -41,7 +69,7 @@ type PluginMetadata struct {
 	Name string
 	// Type indicates the plugin category (receiver, processor, exporter, extension).
 	// This is used for routing, compatibility, and grouping in the plugin manager.
-	Type core.ComponentType
+	Type PluginType
 	// Version is the semantic version of the plugin (e.g., "v1.2.3").
 	// Used for compatibility checks, upgrades, and reporting. Should follow semantic versioning.
 	Version string
@@ -94,4 +122,16 @@ type pluginInstance struct {
 	ch *shmipc.SessionManager
 	// cmd is the exec.Cmd handle for the running plugin process.
 	cmd *exec.Cmd
+}
+
+// PluginInstance represents a loaded plugin instance
+type PluginInstance struct {
+	// Metadata contains the plugin information
+	Metadata *PluginMetadata
+	// Path is the file system path to the plugin
+	Path string
+	// Status is the current status of the plugin
+	Status PluginStatus
+	// Health contains health information for the plugin
+	Health PluginHealth
 }

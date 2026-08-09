@@ -1,0 +1,31 @@
+service:
+  name: "srediag-test"
+  port: 8080
+  environment: "development"
+
+logging:
+  level: "info"
+  format: "console"
+  output: "stdout"
+
+security:
+  tls:
+    enabled: false
+  auth:
+    type: "none"
+
+collector:
+  enabled: true
+  config_path: "/etc/srediag/collector.yaml"
+  memory_limit_mib: 512
+
+plugins:
+  dir: "/opt/srediag/plugins"
+  exec_dir: "/tmp/srediag/plugins"
+  enabled:
+    - "simple-plugin"
+
+diagnostics:
+  defaults:
+    output_format: "json"
+    timeout: "30s"

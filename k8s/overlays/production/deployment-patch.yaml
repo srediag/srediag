@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srediag
+spec:
+  template:
+    spec:
+      containers:
+      - name: srediag
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        env:
+        - name: SREDIAG_LOG_LEVEL
+          value: "warn"
+        - name: ENVIRONMENT
+          value: "production"

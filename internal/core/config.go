@@ -203,7 +203,7 @@ type DiagnosticsConfig struct {
 //
 // Fields:
 //   - Config: Path to builder YAML (for overlays).
-//   - OutputDir: Directory where build artefacts are stored.
+//   - OutputDir: Directory where build artifacts are stored.
 //   - Dist: Distribution metadata (name, description, version, output path).
 //   - Receivers: List of receiver plugin configs.
 //   - Processors: List of processor plugin configs.
@@ -211,7 +211,7 @@ type DiagnosticsConfig struct {
 //   - Extensions: List of extension plugin configs.
 type BuildConfig struct {
 	Config    string `yaml:"config"`     // Path to builder YAML (for overlays)
-	OutputDir string `yaml:"output_dir"` // Where artefacts are stored
+	OutputDir string `yaml:"output_dir"` // Where artifacts are stored
 	Dist      struct {
 		Name        string `yaml:"name"`        // Distribution name
 		Description string `yaml:"description"` // Distribution description
@@ -243,9 +243,20 @@ var configSearchPaths = []string{
 //   - string: Path to the first config file found, or empty string if none found.
 //   - string: File extension (e.g., .yaml, .json, .toml), or .yaml if not found.
 func findConfigFile() (string, string) {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Log warning but continue with system paths
+		fmt.Fprintf(os.Stderr, "Warning: failed to get user home directory: %v\n", err)
+		home = "" // Will skip $HOME paths
+	}
+
 	for _, path := range configSearchPaths {
 		expanded := strings.ReplaceAll(path, "$HOME", home)
+		// Skip paths that couldn't be expanded due to missing home directory
+		if strings.Contains(expanded, "$HOME") && home == "" {
+			continue
+		}
+
 		if _, err := os.Stat(expanded); err == nil {
 			ext := filepath.Ext(expanded)
 			return expanded, ext
@@ -310,10 +321,16 @@ func LoadConfigWithOverlay(spec interface{}, cliFlags map[string]string, opts ..
 		"diagnostics.defaults.output_format": "SREDIAG_DIAG_OUTPUT_FORMAT",
 		"diagnostics.defaults.timeout":       "SREDIAG_DIAG_TIMEOUT",
 	}
+	var bindErrors []error
 	for key, env := range bindEnvs {
 		if err := v.BindEnv(key, env); err != nil {
+			bindErrors = append(bindErrors, fmt.Errorf("failed to bind env %s=%s: %w", env, key, err))
 			fmt.Fprintf(os.Stderr, "Warning: failed to bind env %s: %v\n", env, err)
 		}
+	}
+	// Log aggregate binding errors if any occurred
+	if len(bindErrors) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d environment variable binding errors occurred\n", len(bindErrors))
 	}
 	// 1. CLI flags (highest precedence)
 	for key, val := range cliFlags {
@@ -342,7 +359,16 @@ func LoadConfigWithOverlay(spec interface{}, cliFlags map[string]string, opts ..
 			}
 		}
 	}
-	_ = v.ReadInConfig() // ignore error if not found
+	// Read config file with proper error handling
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// Config file not found - this is acceptable, use defaults
+			fmt.Fprintf(os.Stderr, "Info: no config file found, using defaults and environment variables\n")
+		} else {
+			// Config file found but corrupted/invalid
+			fmt.Fprintf(os.Stderr, "Warning: config file found but failed to read: %v\n", err)
+		}
+	}
 	return v.Unmarshal(spec)
 }
 

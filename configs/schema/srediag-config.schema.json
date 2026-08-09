@@ -1,0 +1,295 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/srediag/srediag/schemas/config.schema.json",
+  "title": "SREDIAG Configuration Schema",
+  "description": "Schema for validating SREDIAG configuration files",
+  "type": "object",
+  "required": ["logging", "service"],
+  "properties": {
+    "logging": {
+      "type": "object",
+      "required": ["level", "format"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error", "fatal"],
+          "default": "info",
+          "description": "Logging level"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["console", "json"],
+          "default": "json",
+          "description": "Log output format"
+        },
+        "output": {
+          "type": "string",
+          "enum": ["stdout", "stderr", "file"],
+          "default": "stdout",
+          "description": "Log output destination"
+        },
+        "file": {
+          "type": "string",
+          "description": "Log file path when output is 'file'"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["enabled", "name"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable service mode"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Service name"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "staging", "production"],
+          "default": "production",
+          "description": "Deployment environment"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080,
+          "description": "Service port"
+        },
+        "config_path": {
+          "type": "string",
+          "description": "Path to service configuration file"
+        },
+        "memory_limit_mib": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 65536,
+          "default": 1024,
+          "description": "Memory limit in MiB"
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "required": ["dir", "exec_dir"],
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Plugin configuration directory"
+        },
+        "exec_dir": {
+          "type": "string",
+          "description": "Plugin executable directory"
+        },
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]+/[a-z0-9]+@[a-z]+$"
+          },
+          "description": "List of enabled plugins"
+        }
+      }
+    },
+    "diagnose": {
+      "type": "object",
+      "properties": {
+        "config_path": {
+          "type": "string",
+          "description": "Path to diagnostics configuration"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Directory for diagnostic outputs"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Enabled diagnostic modules"
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "cert_file": {
+              "type": "string",
+              "description": "TLS certificate file path"
+            },
+            "key_file": {
+              "type": "string",
+              "description": "TLS key file path"
+            },
+            "ca_file": {
+              "type": "string",
+              "description": "CA certificate file path"
+            },
+            "min_version": {
+              "type": "string",
+              "enum": ["TLS1.2", "TLS1.3"],
+              "default": "TLS1.3"
+            },
+            "verify_client": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["none", "basic", "jwt", "oauth2"],
+              "default": "none"
+            },
+            "jwt": {
+              "type": "object",
+              "properties": {
+                "secret": {
+                  "type": "string",
+                  "description": "JWT secret (use environment variable in production)"
+                },
+                "lifetime": {
+                  "type": "string",
+                  "pattern": "^[0-9]+[smhd]$",
+                  "description": "Token lifetime (e.g., 1h, 30m)"
+                }
+              }
+            },
+            "oauth2": {
+              "type": "object",
+              "properties": {
+                "issuer": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "client_id": {
+                  "type": "string"
+                },
+                "client_secret": {
+                  "type": "string",
+                  "description": "OAuth2 client secret (use environment variable in production)"
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rbac": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "default_role": {
+              "type": "string",
+              "enum": ["viewer", "editor", "admin"],
+              "default": "viewer"
+            },
+            "roles": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "quotas": {
+          "type": "object",
+          "properties": {
+            "spans_per_second": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 10000
+            },
+            "logs_mib_per_min": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 100
+            }
+          }
+        },
+        "rate_limit": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "rps": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100,
+              "description": "Requests per second"
+            },
+            "burst": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 200,
+              "description": "Burst capacity"
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "seccomp_profile": {
+              "type": "string",
+              "description": "Seccomp profile path"
+            },
+            "apparmor_profile": {
+              "type": "string",
+              "description": "AppArmor profile name"
+            },
+            "read_only_rootfs": {
+              "type": "boolean",
+              "default": true
+            },
+            "mem_guard_mib": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 128,
+              "description": "Memory guard threshold in MiB"
+            },
+            "cpu_guard_pct": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 80,
+              "description": "CPU guard threshold percentage"
+            }
+          }
+        }
+      }
+    }
+  }
+}

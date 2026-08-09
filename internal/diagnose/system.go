@@ -2,6 +2,7 @@ package diagnose
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/srediag/srediag/internal/core"
 )
@@ -54,6 +55,8 @@ func NewSystemDiagnostics(logger *core.Logger) *SystemDiagnostics {
 //   - error: If diagnostics fail, returns a detailed error.
 func (d *SystemDiagnostics) Run(ctx context.Context) error {
 	d.logger.Info("Running system diagnostics")
-	// TODO: Implement system diagnostics
-	return nil
+
+	// For now, return a meaningful error indicating unimplemented functionality
+	d.logger.Warn("System diagnostics not yet fully implemented")
+	return fmt.Errorf("system diagnostics not yet implemented - requires health check integration, metric collection, and system resource validation")
 }

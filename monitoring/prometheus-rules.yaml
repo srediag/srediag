@@ -1,0 +1,138 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: srediag-alerts
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: srediag
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: srediag.availability
+    interval: 30s
+    rules:
+    - alert: SrediagDown
+      expr: up{job="srediag"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: srediag
+      annotations:
+        summary: "SREDIAG instance {{ $labels.instance }} is down"
+        description: "SREDIAG instance {{ $labels.instance }} has been down for more than 5 minutes."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/srediag-down"
+    
+    - alert: SrediagHighErrorRate
+      expr: |
+        (
+          sum(rate(srediag_processor_errors_total[5m])) by (processor)
+          /
+          sum(rate(srediag_processor_processed_total[5m])) by (processor)
+        ) > 0.05
+      for: 10m
+      labels:
+        severity: warning
+        component: srediag
+      annotations:
+        summary: "High error rate in SREDIAG processor {{ $labels.processor }}"
+        description: "SREDIAG processor {{ $labels.processor }} has error rate of {{ $value | humanizePercentage }} for the last 10 minutes."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/high-error-rate"
+
+  - name: srediag.performance
+    interval: 30s
+    rules:
+    - alert: SrediagHighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{pod=~"srediag-.*", container="srediag"}
+          /
+          container_spec_memory_limit_bytes{pod=~"srediag-.*", container="srediag"}
+        ) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: srediag
+      annotations:
+        summary: "High memory usage in SREDIAG pod {{ $labels.pod }}"
+        description: "SREDIAG pod {{ $labels.pod }} memory usage is above 80% ({{ $value | humanizePercentage }})."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/high-memory-usage"
+    
+    - alert: SrediagHighCPUUsage
+      expr: |
+        (
+          rate(container_cpu_usage_seconds_total{pod=~"srediag-.*", container="srediag"}[5m])
+          /
+          container_spec_cpu_quota{pod=~"srediag-.*", container="srediag"}
+          *
+          container_spec_cpu_period{pod=~"srediag-.*", container="srediag"}
+        ) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: srediag
+      annotations:
+        summary: "High CPU usage in SREDIAG pod {{ $labels.pod }}"
+        description: "SREDIAG pod {{ $labels.pod }} CPU usage is above 80% ({{ $value | humanizePercentage }})."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/high-cpu-usage"
+    
+    - alert: SrediagQueueBacklog
+      expr: srediag_queue_size{} > 10000
+      for: 5m
+      labels:
+        severity: warning
+        component: srediag
+      annotations:
+        summary: "Large queue backlog in SREDIAG {{ $labels.queue }}"
+        description: "SREDIAG queue {{ $labels.queue }} has {{ $value }} items backlogged."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/queue-backlog"
+
+  - name: srediag.slo
+    interval: 30s
+    rules:
+    - alert: SrediagSLOViolation
+      expr: |
+        (
+          sum(rate(srediag_http_requests_total{status=~"5.."}[5m])) by (job)
+          /
+          sum(rate(srediag_http_requests_total[5m])) by (job)
+        ) > 0.001
+      for: 5m
+      labels:
+        severity: critical
+        component: srediag
+        slo: availability
+      annotations:
+        summary: "SREDIAG SLO violation - error rate above 0.1%"
+        description: "SREDIAG error rate is {{ $value | humanizePercentage }}, violating the 99.9% availability SLO."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/slo-violation"
+    
+    - alert: SrediagLatencySLOViolation
+      expr: |
+        histogram_quantile(0.95,
+          sum(rate(srediag_http_request_duration_seconds_bucket[5m])) by (le, job)
+        ) > 0.5
+      for: 5m
+      labels:
+        severity: warning
+        component: srediag
+        slo: latency
+      annotations:
+        summary: "SREDIAG SLO violation - P95 latency above 500ms"
+        description: "SREDIAG P95 latency is {{ $value | humanizeDuration }}, violating the latency SLO."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/latency-slo-violation"
+
+  - name: srediag.capacity
+    interval: 60s
+    rules:
+    - alert: SrediagPodCountHigh
+      expr: |
+        count(up{job="srediag"} == 1) >= 
+        max(kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler="srediag"}) * 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: srediag
+      annotations:
+        summary: "SREDIAG pod count approaching HPA maximum"
+        description: "SREDIAG has {{ $value }} pods running, which is 80% or more of the HPA maximum."
+        runbook_url: "https://github.com/srediag/srediag/wiki/runbooks/pod-count-high"

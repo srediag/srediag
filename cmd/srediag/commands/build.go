@@ -49,12 +49,14 @@ func NewBuildCmd(ctx *core.AppContext) (*cobra.Command, error) {
 		  - Plugins:
 			  <output-dir>/plugins/<name>/<name>
 			  (copy to plugins.exec_dir or use install command)`,
-		Example: `  srediag build all --build-config build/srediag-build.yaml\n  srediag build plugin --type exporter --name clickhouseexporter\n  srediag build generate --type processor --name myprocessor`,
+		Example: `  srediag build all --build-config build/srediag-build.yaml
+  srediag build plugin --type exporter --name clickhouseexporter
+  srediag build generate --type processor --name myprocessor`,
 	}
 
 	// Persistent flags for build config and output-dir, as per build.md
 	cmd.PersistentFlags().String("build-config", "build/srediag-build.yaml", "Path to builder YAML (env: SREDIAG_BUILD_CONFIG)")
-	cmd.PersistentFlags().String("output-dir", "/tmp/srediag-build", "Where artefacts are stored (env: SREDIAG_BUILD_OUTPUT_DIR)")
+	cmd.PersistentFlags().String("output-dir", "/tmp/srediag-build", "Where artifacts are stored (env: SREDIAG_BUILD_OUTPUT_DIR)")
 	if err := viper.BindPFlag("build.config", cmd.PersistentFlags().Lookup("build-config")); err != nil {
 		fmt.Printf("failed to bind build.config flag: %v\n", err)
 	}
@@ -154,7 +156,7 @@ func newBuildUpdateCmd(ctx *core.AppContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "update",
 		Short:   "Sync builder versions with go.mod",
-		Long:    "Synchronise component versions between go.mod and builder, commenting out unknowns.",
+		Long:    "Synchronize component versions between go.mod and builder, commenting out unknowns.",
 		Example: "srediag build update --yaml configs/srediag-builder.yaml --gomod go.mod --plugin-gen plugin/generated",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return buildCLI_UpdateBuilder(ctx, cmd, args)
